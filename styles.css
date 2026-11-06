@@ -1,0 +1,1002 @@
+.remote-sync-review {
+  width: min(1080px, 95vw);
+  height: min(860px, 90vh);
+  height: min(860px, 90dvh);
+  max-height: 90vh;
+  max-height: 90dvh;
+}
+.remote-sync-review .remote-sync-review-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  overflow: hidden;
+}
+.remote-sync-review [hidden] {
+  display: none !important;
+}
+.remote-sync-review-header {
+  flex-shrink: 0;
+}
+.remote-sync-eyebrow {
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-accent);
+}
+.remote-sync-page-header h2 {
+  margin: 0 0 18px;
+  font-size: 24px;
+}
+.remote-sync-locations {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary);
+}
+.remote-sync-meta-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+}
+.remote-sync-meta-label {
+  color: var(--text-muted);
+}
+.remote-sync-meta-value {
+  overflow-wrap: anywhere;
+}
+.remote-sync-counts {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 24px;
+}
+.remote-sync-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--remote-sync-tone, var(--text-muted));
+  background: color-mix(
+    in srgb,
+    var(--remote-sync-tone, var(--text-muted)) 12%,
+    transparent
+  );
+}
+.remote-sync-tone-addition,
+.remote-sync-tone-equal {
+  --remote-sync-tone: var(--color-green, #4eae84);
+}
+.remote-sync-tone-modification {
+  --remote-sync-tone: var(--color-blue, #5c9fe5);
+}
+.remote-sync-tone-rename {
+  --remote-sync-tone: var(--color-purple, #ad8ce5);
+}
+.remote-sync-tone-deletion {
+  --remote-sync-tone: var(--color-orange, #d69247);
+}
+.remote-sync-tone-conflict,
+.remote-sync-tone-blocked {
+  --remote-sync-tone: var(--color-red, #e36b75);
+}
+.remote-sync-warnings:empty {
+  display: none;
+}
+.remote-sync-warning {
+  margin: 0 0 6px;
+  padding: 10px 12px;
+  border-inline-start: 3px solid var(--color-orange, #d69247);
+  border-radius: 5px;
+  color: var(--text-normal);
+  background: color-mix(in srgb, var(--color-orange, #d69247) 10%, transparent);
+  font-size: var(--font-ui-small);
+}
+.remote-sync-review .setting-item {
+  padding: 0;
+  border: 0;
+}
+.remote-sync-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(96px, 3fr);
+  gap: 14px;
+  flex-shrink: 0;
+}
+.remote-sync-toolbar .setting-item,
+.remote-sync-toolbar .setting-item-control {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.remote-sync-toolbar .setting-item-name {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+.remote-sync-selection-controls {
+  padding: 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+.remote-sync-selection-controls h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.remote-sync-selection-controls .setting-item-info,
+.remote-sync-review-tools .setting-item-info {
+  display: none;
+}
+.remote-sync-selection-controls .setting-item-control {
+  justify-content: flex-start;
+}
+.remote-sync-review-tools {
+  display: flex;
+  align-items: stretch;
+}
+.remote-sync-review-tools .setting-item,
+.remote-sync-review-tools .setting-item-control {
+  width: 100%;
+}
+.remote-sync-review-tools .setting-item-control {
+  flex-direction: column;
+  justify-content: center;
+  align-items: stretch;
+  gap: 10px;
+}
+.remote-sync-review-tools button {
+  width: 100%;
+}
+.remote-sync-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.remote-sync-button-icon {
+  display: inline-flex;
+  order: -1;
+}
+.remote-sync-button-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.remote-sync-status-pending {
+  align-self: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.remote-sync-dialog {
+  width: min(620px, 94vw);
+}
+.remote-sync-page > p {
+  line-height: 1.6;
+}
+.remote-sync-summary-intro {
+  margin: 0 0 16px;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+.remote-sync-operation-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.remote-sync-summary-group {
+  padding: 16px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary);
+  --remote-sync-direction: var(--color-blue, #5c9fe5);
+}
+.remote-sync-summary-downloads {
+  --remote-sync-direction: var(--color-purple, #ad8ce5);
+}
+.remote-sync-summary-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.remote-sync-summary-heading h3 {
+  margin: 0;
+  color: var(--remote-sync-direction);
+  font-size: 16px;
+}
+.remote-sync-summary-total {
+  padding: 2px 9px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--remote-sync-direction) 12%, transparent);
+  color: var(--remote-sync-direction);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.remote-sync-summary-caption {
+  margin: 5px 0 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.remote-sync-summary-list {
+  margin: 0;
+  padding: 0 0 0 10px;
+  border-inline-start: 2px solid var(--background-modifier-border);
+  list-style: none;
+}
+.remote-sync-summary-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: var(--font-ui-small);
+}
+.remote-sync-summary-list strong {
+  font-variant-numeric: tabular-nums;
+}
+.remote-sync-summary-add strong {
+  color: var(--color-green, #4eae84);
+}
+.remote-sync-summary-modify strong {
+  color: var(--color-blue, #5c9fe5);
+}
+.remote-sync-summary-delete strong {
+  color: var(--color-red, #e36b75);
+}
+.remote-sync-summary-move strong {
+  color: var(--color-purple, #ad8ce5);
+}
+.remote-sync-summary-list .remote-sync-summary-zero,
+.remote-sync-summary-list .remote-sync-summary-zero strong {
+  color: var(--text-faint);
+}
+.remote-sync-summary-notes {
+  margin-bottom: 14px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+.remote-sync-summary-notes p,
+.remote-sync-confirm-body .remote-sync-warning p {
+  margin: 4px 0;
+}
+.remote-sync-scan-state {
+  padding: 32px 22px;
+}
+.remote-sync-empty.remote-sync-scan-state > strong {
+  color: var(--text-normal);
+}
+.remote-sync-scan-state .setting-item-control {
+  justify-content: center;
+}
+.remote-sync-scan-state > p {
+  margin: 10px 0 20px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+.remote-sync-scan-progress {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+}
+.remote-sync-scan-track {
+  position: relative;
+  width: min(420px, 100%);
+  height: 6px;
+  margin: 20px auto 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--background-modifier-border);
+}
+.remote-sync-scan-track::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  border-radius: inherit;
+  background: var(--interactive-accent);
+  animation: remote-sync-scanning 1.3s ease-in-out infinite;
+}
+@keyframes remote-sync-scanning {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+.remote-sync-files {
+  flex: 1 1 auto;
+  min-height: 80px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-inline-end: 6px;
+}
+.remote-sync-file {
+  margin-bottom: 10px;
+  padding: 13px 15px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  background: var(--background-primary);
+}
+.remote-sync-file:last-child {
+  margin-bottom: 0;
+}
+.remote-sync-file:has(.remote-sync-file-checkbox:checked) {
+  border-color: var(--interactive-accent);
+  background: color-mix(
+    in srgb,
+    var(--interactive-accent) 5%,
+    var(--background-primary)
+  );
+}
+.remote-sync-file-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.remote-sync-file-checkbox {
+  flex-shrink: 0;
+}
+.remote-sync-file-info {
+  flex: 1;
+  min-width: 0;
+}
+.remote-sync-file-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: var(--font-ui-small);
+}
+.remote-sync-file-name strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.remote-sync-file-path {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.remote-sync-file-actions {
+  max-width: 45%;
+}
+.remote-sync-file-actions .setting-item-info {
+  display: none;
+}
+.remote-sync-file-actions .setting-item-control {
+  min-width: 0;
+}
+.remote-sync-file-actions select {
+  width: 100%;
+  max-width: 260px;
+  font-size: var(--font-ui-small);
+}
+.remote-sync-file-risk {
+  margin: 8px 0 0 28px;
+  color: var(--text-warning);
+  font-size: var(--font-ui-small);
+}
+.remote-sync-file-details {
+  margin: 9px 0 0 28px;
+  font-size: var(--font-ui-small);
+}
+.remote-sync-file-details > summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.remote-sync-file-details > summary:hover {
+  color: var(--text-accent);
+}
+.remote-sync-file-details[open] {
+  padding-top: 9px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.remote-sync-file-details p {
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+.remote-sync-detail-metadata {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.remote-sync-technical {
+  margin: 12px 0;
+  color: var(--text-muted);
+}
+.remote-sync-file pre {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.remote-sync-empty {
+  padding: 28px 16px;
+  text-align: center;
+}
+.remote-sync-empty strong {
+  color: var(--color-green, #4eae84);
+}
+.remote-sync-empty p {
+  margin-bottom: 0;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+.remote-sync-review-footer {
+  flex-shrink: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.remote-sync-progress-status {
+  margin: 0 0 8px;
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+}
+.remote-sync-progress {
+  display: block;
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  --remote-sync-progress-color: var(--interactive-accent);
+}
+.remote-sync-progress::-webkit-progress-bar {
+  background: var(--background-modifier-border);
+  border-radius: 999px;
+}
+.remote-sync-progress::-webkit-progress-value {
+  background: var(--remote-sync-progress-color);
+  border-radius: 999px;
+  transition: width 180ms ease;
+}
+.remote-sync-progress::-moz-progress-bar {
+  background: var(--remote-sync-progress-color);
+}
+.remote-sync-progress[data-tone="success"] {
+  --remote-sync-progress-color: var(--color-green, #4eae84);
+}
+.remote-sync-progress[data-tone="warning"] {
+  --remote-sync-progress-color: var(--color-orange, #d69247);
+}
+.remote-sync-progress[data-tone="error"] {
+  --remote-sync-progress-color: var(--color-red, #e36b75);
+}
+.remote-sync-progress-file {
+  margin-top: 7px;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.remote-sync-file-transfer {
+  margin-top: 10px;
+}
+.remote-sync-file-transfer-label {
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.remote-sync-file-transfer-progress {
+  height: 4px;
+  opacity: 0.8;
+}
+.remote-sync-review-footer > .setting-item {
+  margin-top: 12px;
+}
+.remote-sync-notices {
+  position: fixed;
+  z-index: var(--layer-notice, 100);
+  bottom: max(24px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(520px, calc(100vw - 32px));
+  max-height: 40vh;
+  overflow-y: auto;
+  pointer-events: none;
+}
+.remote-sync-notices .remote-sync-notice {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--background-modifier-border);
+  border-inline-start: 4px solid var(--remote-sync-notice-tone);
+  border-radius: 10px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 20%);
+  pointer-events: auto;
+}
+.remote-sync-notice--success {
+  --remote-sync-notice-tone: var(--color-green, #4eae84);
+}
+.remote-sync-notice--warning {
+  --remote-sync-notice-tone: var(--color-orange, #d69247);
+}
+.remote-sync-notice--error {
+  --remote-sync-notice-tone: var(--color-red, #e36b75);
+}
+.remote-sync-notice--info {
+  --remote-sync-notice-tone: var(--color-blue, #5c9fe5);
+}
+.remote-sync-notice .notice-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.remote-sync-notice-body {
+  flex: 1;
+  min-width: 0;
+}
+.remote-sync-notice-title {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--remote-sync-notice-tone);
+  font-size: 12px;
+}
+.remote-sync-notice-text {
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.remote-sync-notice-dismiss {
+  flex-shrink: 0;
+  padding: 0;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: 22px;
+}
+@media (max-width: 600px) {
+  .remote-sync-review {
+    width: 100%;
+  }
+  .remote-sync-review .remote-sync-review-content {
+    gap: 12px;
+  }
+  .remote-sync-page-header h2 {
+    margin-bottom: 12px;
+    font-size: 21px;
+  }
+  .remote-sync-meta-row {
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 8px;
+    font-size: 12px;
+  }
+  .remote-sync-locations {
+    padding: 10px 12px;
+  }
+  .remote-sync-toolbar .setting-item-info {
+    display: none;
+  }
+  .remote-sync-operation-summary {
+    gap: 10px;
+  }
+  .remote-sync-summary-group {
+    padding: 12px;
+  }
+  .remote-sync-summary-caption {
+    min-height: 2.8em;
+  }
+  .remote-sync-toolbar .setting-item-control {
+    justify-content: flex-start;
+  }
+  .remote-sync-review-tools .setting-item-control {
+    justify-content: center;
+  }
+  .remote-sync-file-heading {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+  }
+  .remote-sync-file-checkbox {
+    grid-column: 1;
+    margin: 4px 0 0;
+  }
+  .remote-sync-file-info {
+    grid-column: 2;
+  }
+  .remote-sync-file-actions {
+    grid-column: 2;
+    max-width: 100%;
+    width: 100%;
+  }
+  .remote-sync-file-actions .setting-item-control,
+  .remote-sync-file-actions select {
+    width: 100%;
+    max-width: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .remote-sync-scan-track::after {
+    animation: none;
+    left: 33%;
+  }
+  .remote-sync-progress::-webkit-progress-value {
+    transition: none;
+  }
+}
+
+/* Activity history */
+.remote-sync-history {
+  width: min(940px, 95vw);
+  height: min(800px, 90vh);
+  height: min(800px, 90dvh);
+}
+.remote-sync-history .remote-sync-history-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow: hidden;
+}
+.remote-sync-page-intro {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  line-height: 1.6;
+}
+.remote-sync-history .remote-sync-page-intro {
+  margin: 0;
+}
+.remote-sync-history-search {
+  padding: 10px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  background: var(--background-secondary);
+}
+.remote-sync-history-search .setting-item {
+  padding: 0;
+  border: 0;
+}
+.remote-sync-history-search input {
+  width: min(340px, 100%);
+}
+.remote-sync-history-content-area {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-inline-end: 5px;
+  overscroll-behavior: contain;
+}
+.remote-sync-history-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.remote-sync-history-stat {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  background: var(--background-secondary);
+}
+.remote-sync-history-stat strong {
+  font-size: 23px;
+  font-variant-numeric: tabular-nums;
+}
+.remote-sync-history-stat span,
+.remote-sync-history-caption {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.remote-sync-commit {
+  margin-bottom: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+  overflow: hidden;
+}
+.remote-sync-commit-heading,
+.remote-sync-history-file > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px;
+  cursor: pointer;
+}
+.remote-sync-commit-heading::before,
+.remote-sync-history-file > summary::before {
+  content: "›";
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 19px;
+  line-height: 1;
+}
+.remote-sync-commit[open] > summary::before,
+.remote-sync-history-file[open] > summary::before {
+  transform: rotate(90deg);
+}
+.remote-sync-commit-title,
+.remote-sync-history-file-name {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+.remote-sync-commit-title strong,
+.remote-sync-history-file-name strong {
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.remote-sync-commit-body {
+  padding: 14px 15px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.remote-sync-commit-body > .remote-sync-counts {
+  margin-bottom: 12px;
+}
+.remote-sync-history-file {
+  margin: 8px 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 7px;
+  background: var(--background-secondary);
+}
+.remote-sync-history-file > summary {
+  padding: 10px 12px;
+}
+.remote-sync-history-file-body {
+  padding: 0 14px 12px 34px;
+  font-size: var(--font-ui-small);
+}
+.remote-sync-history-path {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.remote-sync-history .remote-sync-meta-row {
+  grid-template-columns: 110px minmax(0, 1fr);
+  margin: 5px 0;
+}
+.remote-sync-history pre {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.remote-sync-history-scans {
+  margin-top: 20px;
+  padding: 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+}
+.remote-sync-history-scans > summary {
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+}
+.remote-sync-scan-entry {
+  margin: 12px 0;
+  font-size: var(--font-ui-small);
+}
+.remote-sync-tone-neutral {
+  --remote-sync-tone: var(--text-muted);
+}
+
+/* Settings */
+.remote-sync-settings {
+  width: 100%;
+  min-width: 0;
+  max-width: 850px;
+  margin-inline: auto;
+  container: remote-sync-settings / inline-size;
+}
+.remote-sync-settings-card {
+  margin-bottom: 16px;
+  padding: 18px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 11px;
+  background: var(--background-primary);
+}
+.remote-sync-settings-card > h3,
+.remote-sync-settings-card > summary {
+  margin: 0;
+  padding: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.remote-sync-settings-card > summary {
+  cursor: pointer;
+}
+.remote-sync-settings .remote-sync-page-header h2 {
+  padding: 0;
+}
+.remote-sync-settings-card-body {
+  padding-top: 14px;
+}
+.remote-sync-settings-caption {
+  margin: 0 0 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.remote-sync-account-status {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  margin-bottom: 6px;
+  border-radius: 9px;
+  background: var(--background-secondary);
+}
+.remote-sync-account-status > div {
+  min-width: 0;
+}
+.remote-sync-account-status strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.remote-sync-account-status .remote-sync-settings-caption {
+  margin: 5px 0 0;
+}
+.remote-sync-settings .setting-item {
+  padding: 13px 14px;
+  gap: 12px;
+}
+.remote-sync-settings .setting-item-info {
+  flex: 1 1 55%;
+  margin-inline-end: 0;
+}
+.remote-sync-settings .setting-item-name {
+  font-size: var(--font-ui-small);
+}
+.remote-sync-settings .setting-item-description {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.remote-sync-settings .setting-item-control {
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.remote-sync-settings-paths {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.remote-sync-settings-path {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  background: var(--background-secondary);
+}
+.remote-sync-settings-path-label {
+  color: var(--text-accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.remote-sync-settings-path strong {
+  font-size: var(--font-ui-small);
+  overflow-wrap: anywhere;
+}
+.remote-sync-settings-path .remote-sync-settings-caption {
+  margin: 0;
+}
+.remote-sync-settings-details {
+  margin: 6px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.remote-sync-settings-details > summary {
+  cursor: pointer;
+}
+.remote-sync-settings input[type="number"] {
+  width: 75px;
+}
+.remote-sync-settings-footnote {
+  margin: 14px 0 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+/* Settings can be narrow inside a wide Obsidian window. Follow the available
+   content width rather than the window width when stacking controls. */
+@container remote-sync-settings (max-width: 520px) {
+  .remote-sync-settings-card {
+    padding: 14px;
+  }
+  .remote-sync-account-status {
+    flex-wrap: wrap;
+  }
+  .remote-sync-settings-paths {
+    grid-template-columns: 1fr;
+  }
+  .remote-sync-settings .setting-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .remote-sync-settings .setting-item-control {
+    justify-content: flex-start;
+    width: 100%;
+  }
+  .remote-sync-settings .setting-item-control > * {
+    max-width: 100%;
+  }
+}
+@media (max-width: 600px) {
+  .remote-sync-history .remote-sync-history-content {
+    gap: 10px;
+  }
+  .remote-sync-history-overview {
+    gap: 6px;
+  }
+  .remote-sync-history-stat {
+    padding: 9px;
+  }
+  .remote-sync-history-stat span {
+    font-size: 10px;
+  }
+  .remote-sync-commit-heading {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px;
+  }
+  .remote-sync-commit-title {
+    flex-basis: calc(100% - 28px);
+  }
+  .remote-sync-commit-heading > .remote-sync-badge {
+    margin-inline-start: 20px;
+  }
+  .remote-sync-history-search .setting-item {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .remote-sync-history-search .setting-item-control,
+  .remote-sync-history-search input {
+    width: 100%;
+  }
+  .remote-sync-settings-card {
+    padding: 14px;
+  }
+  .remote-sync-settings-paths {
+    grid-template-columns: 1fr;
+  }
+  .remote-sync-settings .setting-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .remote-sync-settings .setting-item-control {
+    justify-content: flex-start;
+    width: 100%;
+  }
+}
