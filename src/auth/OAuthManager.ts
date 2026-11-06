@@ -9,6 +9,18 @@ interface TokenResponse {
   refresh_token?: string;
   expires_in?: number;
   scope?: string;
+  refresh_token_expires_in?: number;
+}
+export function refreshExpiry(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value <= 0 ||
+    !Number.isSafeInteger(Date.now() + value * 1000)
+  )
+    throw new Error("Invalid refresh-token lifetime");
+  return Date.now() + value * 1000;
 }
 export interface AuthProvider {
   token(force?: boolean): Promise<string>;
@@ -17,6 +29,10 @@ export interface AuthProvider {
 export class OAuthManager implements AuthProvider {
   private access = "";
   private expires = 0;
+  needsReconnect = false;
+  get expiresAt(): number | undefined {
+    return this.access ? this.expires : undefined;
+  }
   constructor(
     private http: Http,
     private credentials: () => Credentials,
@@ -25,6 +41,7 @@ export class OAuthManager implements AuthProvider {
   lock(): void {
     this.access = "";
     this.expires = 0;
+    this.needsReconnect = false;
   }
   async token(force = false): Promise<string> {
     if (!force && this.access && Date.now() < this.expires - 60000)
@@ -41,20 +58,44 @@ export class OAuthManager implements AuthProvider {
         grant_type: "refresh_token",
       }).toString(),
     });
-    if (response.status === 400 || response.status === 401)
+    if (response.status === 400 || response.status === 401) {
+      this.access = "";
+      this.expires = 0;
+      this.needsReconnect = true;
       throw new Error(
         "Refresh token revoked, expired or incompatible with this OAuth client. Reconnect on Ubuntu.",
       );
+    }
     ok(response);
     const t = json<TokenResponse>(response);
     if (!t.access_token || !Number.isFinite(t.expires_in) || t.expires_in! <= 0)
       throw new Error("Invalid OAuth token response");
     if (t.scope && !t.scope.split(" ").includes(DRIVE_SCOPE))
       throw new Error("Required Drive permission was revoked");
-    if (t.refresh_token && t.refresh_token !== c.refreshToken) {
-      c.refreshToken = t.refresh_token;
-      await this.persist();
+    const deadline = refreshExpiry(t.refresh_token_expires_in);
+    if (
+      (t.refresh_token && t.refresh_token !== c.refreshToken) ||
+      deadline !== undefined
+    ) {
+      const previous = {
+        token: c.refreshToken,
+        deadline: c.refreshTokenExpiresAt,
+      };
+      if (t.refresh_token && t.refresh_token !== c.refreshToken) {
+        c.refreshToken = t.refresh_token;
+        delete c.refreshTokenExpiresAt;
+      }
+      if (deadline !== undefined) c.refreshTokenExpiresAt = deadline;
+      try {
+        await this.persist();
+      } catch (error) {
+        c.refreshToken = previous.token;
+        if (previous.deadline === undefined) delete c.refreshTokenExpiresAt;
+        else c.refreshTokenExpiresAt = previous.deadline;
+        throw error;
+      }
     }
+    this.needsReconnect = false;
     this.access = t.access_token;
     this.expires = Date.now() + t.expires_in! * 1000;
     return this.access;
@@ -98,5 +139,6 @@ export async function exchangeCode(
     accountEmail: "",
     folderId: "",
     folderName: "",
+    refreshTokenExpiresAt: refreshExpiry(t.refresh_token_expires_in),
   });
 }

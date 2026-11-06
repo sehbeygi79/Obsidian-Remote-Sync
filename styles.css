@@ -1000,3 +1000,258 @@
     width: 100%;
   }
 }
+
+/* Saved accounts and remote profiles */
+.remote-sync-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  overflow: hidden;
+  border-radius: 50%;
+  color: var(--text-accent);
+  background: var(--background-modifier-hover);
+  font-size: 17px;
+  font-weight: 600;
+}
+.remote-sync-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.remote-sync-account-identity {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.remote-sync-account-status .remote-sync-badge {
+  flex-shrink: 0;
+}
+.remote-sync-saved-account,
+.remote-sync-remote-card {
+  padding: 14px;
+  margin: 12px 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  min-width: 0;
+}
+.remote-sync-profile-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin-bottom: 12px;
+}
+.remote-sync-profile-heading > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.remote-sync-profile-heading .remote-sync-settings-caption {
+  margin: 3px 0 0;
+}
+.remote-sync-token-status {
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--background-secondary);
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.remote-sync-token-status p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.remote-sync-token-status [data-expired="true"] {
+  color: var(--text-warning);
+}
+.remote-sync-review-header .setting-item {
+  gap: 12px;
+  padding: 10px 0;
+  margin-bottom: 12px;
+}
+.remote-sync-review-header .setting-item-control {
+  min-width: 0;
+}
+.remote-sync-review-header select {
+  max-width: 100%;
+}
+@container remote-sync-settings (max-width: 520px) {
+  .remote-sync-profile-heading {
+    flex-wrap: wrap;
+  }
+  .remote-sync-profile-heading > .remote-sync-badge {
+    margin-inline-start: 50px;
+  }
+  .remote-sync-remote-card,
+  .remote-sync-saved-account {
+    padding: 12px;
+  }
+}
+.remote-sync-history-search .setting-item-control {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.remote-sync-history-search select {
+  max-width: 100%;
+}
+.remote-sync-settings .remote-sync-remote-card .setting-item-info,
+.remote-sync-settings .remote-sync-saved-account .setting-item-info {
+  flex: 1 1 auto;
+}
+.remote-sync-review-header .setting-item-info {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+}
+.remote-sync-review-header .setting-item-control {
+  flex: 1 1 auto;
+}
+.remote-sync-review-header select {
+  width: 100%;
+  max-width: 420px;
+}
+
+/* Shared photo selectors: closed summaries stay compact; menus scroll inside
+   the page so they cannot be clipped by Obsidian's modal/setting containers. */
+.remote-sync-photo-selector {
+  min-width: 0;
+  margin-bottom: 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary);
+  overflow: hidden;
+}
+.remote-sync-photo-selector > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  list-style: none;
+  cursor: pointer;
+}
+.remote-sync-photo-selector > summary::-webkit-details-marker {
+  display: none;
+}
+.remote-sync-photo-selector > summary::marker {
+  content: "";
+}
+.remote-sync-photo-selector > summary:hover {
+  background: var(--background-modifier-hover);
+}
+.remote-sync-selector-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.remote-sync-selector-text {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.remote-sync-selector-text strong,
+.remote-sync-selector-text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.remote-sync-selector-text strong {
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+}
+.remote-sync-selector-text > span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.remote-sync-selector-chevron {
+  color: var(--text-muted);
+  font-size: 22px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+.remote-sync-photo-selector[open] .remote-sync-selector-chevron {
+  transform: rotate(180deg);
+}
+.remote-sync-selector-menu {
+  max-height: min(260px, 40vh);
+  overflow: auto;
+  border-top: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  overscroll-behavior: contain;
+}
+.remote-sync-selector-menu .remote-sync-selector-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  text-align: start;
+  background: transparent;
+}
+.remote-sync-selector-option .remote-sync-selector-text strong {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.remote-sync-selector-menu .remote-sync-selector-option:hover {
+  background: var(--background-modifier-hover);
+}
+.remote-sync-selector-menu .remote-sync-selector-option[aria-selected="true"] {
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+}
+.remote-sync-selector-check {
+  visibility: hidden;
+  color: var(--text-accent);
+  font-weight: 700;
+}
+.remote-sync-selector-option[aria-selected="true"] .remote-sync-selector-check {
+  visibility: visible;
+}
+.remote-sync-photo-selector > summary:focus-visible,
+.remote-sync-selector-option:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -3px;
+}
+.remote-sync-photo-selector[data-disabled="true"] > summary {
+  cursor: default;
+  opacity: 0.55;
+}
+.remote-sync-permission-copy {
+  white-space: pre-line;
+}
+@media (prefers-reduced-motion: reduce) {
+  .remote-sync-selector-chevron {
+    transition: none;
+  }
+}
+.remote-sync-review-header .remote-sync-photo-selector {
+  position: relative;
+  overflow: visible;
+}
+.remote-sync-review-header .remote-sync-selector-menu {
+  position: absolute;
+  z-index: 20;
+  inset-inline: 0;
+  top: calc(100% + 5px);
+  max-height: min(240px, 32vh);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 20%);
+}
+.remote-sync-settings
+  .setting-item:has(.setting-item-description:empty)
+  .setting-item-info {
+  flex-basis: auto;
+}

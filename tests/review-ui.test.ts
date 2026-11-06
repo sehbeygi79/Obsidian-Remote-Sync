@@ -398,3 +398,63 @@ describe("sync review modal", () => {
     );
   });
 });
+
+it("switches remote profiles through a fresh scan and clears the previous file selection", async () => {
+  const f = fixture();
+  const profiles = [
+    { id: "first", name: "First remote", accountRef: "one" },
+    { id: "second", name: "Second remote", accountRef: "two" },
+  ];
+  let active = profiles[0]!;
+  Object.assign(f.plugin.credentials, {
+    remotes: profiles,
+    account: (ref: string) => ({ accountEmail: `${ref}@example.test` }),
+  });
+  Object.defineProperty(f.plugin.credentials, "activeRemote", {
+    get: () => active,
+  });
+  Object.assign(f.review, {
+    profileId: "first",
+    remoteName: "First remote",
+    selectionVersion: 0,
+  });
+  const selectRemote = vi.fn(async (id: string) => {
+    active = profiles.find((p) => p.id === id)!;
+    extended.selectionVersion++;
+  });
+  const extended = Object.assign(f.plugin, {
+    selectionVersion: 0,
+    selectRemote,
+  });
+  f.plugin.scan.mockImplementation(async () => ({
+    ...f.review,
+    profileId: active.id,
+    remoteName: active.name,
+    selectionVersion: extended.selectionVersion,
+  }));
+  f.modal.open();
+  f.button("Select All").listeners.click!();
+  const selector = f.content.all(
+    (el) => el.attributes["aria-label"] === "Remote profile",
+  )[0]!;
+  expect(selector.tag).toBe("summary");
+  const option = f.content.all(
+    (el) => el.attributes["data-value"] === "second",
+  )[0]!;
+  option.listeners.click!();
+  await f.done();
+  expect(selectRemote).toHaveBeenCalledWith("second");
+  expect(f.plugin.scan).toHaveBeenCalledOnce();
+  expect(f.status()).toBe("Selected operations: 0");
+  expect(f.apply).not.toHaveBeenCalled();
+  f.button("Select All").listeners.click!();
+  f.button("Apply Selected").listeners.click!();
+  expect(
+    f.content.all((el) => el.attributes["aria-label"] === "Remote profile")[0]!
+      .attributes["aria-disabled"],
+  ).toBe("true");
+  Modal.opened.at(-1)!.contentEl.all((el) => el.textContent === "Cancel")[0]!
+    .listeners.click!();
+  await f.done();
+  f.modal.close();
+});

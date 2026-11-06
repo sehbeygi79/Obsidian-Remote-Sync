@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { requestUrl } from "obsidian";
+import { requestUrl, Platform } from "obsidian";
 import RemoteSyncPlugin from "../src/main";
 import type { App } from "obsidian";
 import type { Review } from "../src/sync/types";
@@ -20,7 +20,7 @@ function fixture() {
   const plugin = new RemoteSyncPlugin({} as App, {
     id: "obsidian-remote-sync",
     name: "Remote Sync",
-    version: "1.0.0",
+    version: "1.1.0",
     minAppVersion: "1.8.7",
     description: "",
     author: "",
@@ -182,4 +182,65 @@ it("records a failed missing-root scan without network or baseline changes", asy
     "refresh-secret",
   );
   f.plugin.onunload();
+});
+
+it("hides account identity and photos immediately when credentials are locked through a command", async () => {
+  const f = fixture();
+  await f.plugin.onload();
+  await f.plugin.credentials.install(
+    {
+      version: 1,
+      clientType: "desktop",
+      clientId: "desktop.apps.googleusercontent.com",
+      clientSecret: "secret",
+      refreshToken: "refresh",
+      scopes: ["https://www.googleapis.com/auth/drive"],
+      accountId: "account",
+      accountEmail: "person@example.test",
+      folderId: "folder",
+      folderName: "Materials",
+      photoUrl: "https://lh3.googleusercontent.com/example",
+    },
+    "a long passphrase",
+  );
+  const registrations = (f.plugin as unknown as { registrations: unknown[][] })
+    .registrations;
+  const tab = registrations
+    .flat()
+    .find(
+      (item) => typeof item === "object" && item !== null && "display" in item,
+    ) as { display: () => void; containerEl: import("./ui-host").UiElement };
+  Object.defineProperty(tab.containerEl, "isConnected", { value: true });
+  tab.display();
+  expect(tab.containerEl.querySelector("img")).not.toBeNull();
+  f.plugin.lock();
+  expect(tab.containerEl.querySelector("img")).toBeNull();
+  expect(
+    tab.containerEl.all((el) => el.textContent.includes("person@example.test")),
+  ).toHaveLength(0);
+  f.plugin.onunload();
+});
+
+it("uses the requested two-line Google permission text before opening consent", async () => {
+  const f = fixture(),
+    desktop = Platform.isDesktopApp;
+  await f.plugin.onload();
+  Object.assign(Platform, { isDesktopApp: true });
+  vi.mocked(requestUrl).mockClear();
+  try {
+    const connecting = f.plugin.connect();
+    const modal = Modal.opened.at(-1)!;
+    expect(
+      modal.contentEl.querySelector(".remote-sync-permission-copy")!
+        .textContent,
+    ).toBe(
+      "Remote Sync requires full drive access but confines its file operations to your selected folder.\nContinue to Google consent?",
+    );
+    modal.close();
+    await connecting;
+    expect(requestUrl).not.toHaveBeenCalled();
+  } finally {
+    Object.assign(Platform, { isDesktopApp: desktop });
+    f.plugin.onunload();
+  }
 });

@@ -21,6 +21,25 @@ function fixture(connected = true, saved = true) {
         folderId: "test-folder",
       };
     },
+    get accounts() {
+      return [{ id: "account-one", credentials: this.credentials }];
+    },
+    remotes: [
+      {
+        id: "remote-one",
+        name: "My remote",
+        accountRef: "account-one",
+        folderId: "test-folder",
+        folderName: "Test remote",
+      },
+    ],
+    get activeRemote() {
+      return this.remotes[0];
+    },
+    configuration: { activeAccountId: "account-one" },
+    account(_ref?: string) {
+      return this.credentials;
+    },
     disconnect: vi.fn(async () => {
       credentials.unlocked = false;
       credentials.envelope = null;
@@ -32,7 +51,7 @@ function fixture(connected = true, saved = true) {
   const plugin = {
     state,
     credentials,
-    manifest: { version: "1.0.0" },
+    manifest: { version: "1.1.0" },
     executor: {},
     lock: vi.fn(() => {
       if (working) throw new Error("Cannot lock during a task");
@@ -41,6 +60,7 @@ function fixture(connected = true, saved = true) {
     unlock: vi.fn(async () => {
       credentials.unlocked = true;
     }),
+    tokenStatus: vi.fn(() => ({ needsReconnect: false })),
     drive: vi.fn(),
     manager: vi.fn(),
     context: () => "test",
@@ -180,4 +200,52 @@ describe("Remote Sync settings", () => {
     expect(state.state.journal).toEqual([unresolved]);
     expect(save).toHaveBeenCalledOnce();
   });
+});
+
+it("keeps token information in the account section and exposes remotes through a compact photo selector", () => {
+  const f = fixture();
+  const sections = f.root.all((el) =>
+    el.classes.has("remote-sync-settings-card"),
+  );
+  const account = sections[0]!,
+    remote = sections[1]!;
+  expect(remote.children[0]!.textContent).toBe("Remote");
+  expect(
+    account.all((el) => el.classes.has("remote-sync-token-status")),
+  ).toHaveLength(1);
+  expect(
+    remote.all((el) => el.classes.has("remote-sync-token-status")),
+  ).toHaveLength(0);
+  expect(
+    remote.all((el) => el.classes.has("remote-sync-photo-selector")),
+  ).toHaveLength(1);
+  expect(
+    remote.all((el) => el.classes.has("remote-sync-remote-card")),
+  ).toHaveLength(0);
+  expect(
+    account.all((el) => el.classes.has("remote-sync-saved-account")),
+  ).toHaveLength(0);
+});
+
+it("browses another account's tools and token status without switching the active remote", () => {
+  const f = fixture(),
+    first = f.credentials.credentials,
+    second = { ...first, accountEmail: "second@example.test" };
+  Object.defineProperty(f.credentials, "accounts", {
+    get: () => [
+      { id: "account-one", credentials: first },
+      { id: "account-two", credentials: second },
+    ],
+  });
+  vi.spyOn(f.credentials, "account").mockImplementation((ref) =>
+    ref === "account-two" ? second : first,
+  );
+  f.tab.display();
+  const option = f.root.all(
+    (el) => el.attributes["data-value"] === "account-two",
+  )[0]!;
+  option.listeners.click!();
+  expect(f.plugin.tokenStatus).toHaveBeenLastCalledWith("account-two");
+  expect(f.plugin.run).not.toHaveBeenCalled();
+  expect(f.credentials.activeRemote!.id).toBe("remote-one");
 });

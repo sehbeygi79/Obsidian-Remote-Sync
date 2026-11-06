@@ -1,3 +1,9 @@
+import {
+  migrateCredentials,
+  selectedCredentials,
+  validateConfiguration,
+  type RemoteConfiguration,
+} from "./RemoteConfiguration";
 export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 export interface Credentials {
   version: 1;
@@ -10,10 +16,13 @@ export interface Credentials {
   accountEmail: string;
   folderId: string;
   folderName: string;
+  photoUrl?: string;
+  displayName?: string;
+  refreshTokenExpiresAt?: number;
 }
 export interface Envelope {
   purpose: "obsidian-remote-sync-credentials";
-  version: 1;
+  version: 1 | 2;
   cipher: "AES-256-GCM";
   kdf: "PBKDF2-SHA256";
   iterations: 600000;
@@ -22,9 +31,30 @@ export interface Envelope {
   ciphertext: string;
 }
 const encoder = new TextEncoder();
-const AAD = encoder.encode(
-  "obsidian-remote-sync-credentials:1:AES-256-GCM:PBKDF2-SHA256:600000",
-);
+const aad = (version: number) =>
+  encoder.encode(
+    `obsidian-remote-sync-credentials:${version}:AES-256-GCM:PBKDF2-SHA256:600000`,
+  );
+export const MAX_CREDENTIAL_FILE_SIZE = 2_000_000;
+export function photoUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > 8192) return undefined;
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      (url.hostname === "googleusercontent.com" ||
+        url.hostname.endsWith(".googleusercontent.com") ||
+        url.hostname.endsWith(".ggpht.com"))
+    )
+      return url.href;
+  } catch {
+    /* Use an initials avatar if the photo is unavailable. */
+  }
+  return undefined;
+}
 export function base64(bytes: Uint8Array): string {
   let s = "";
   for (let i = 0; i < bytes.length; i += 8192)
@@ -68,7 +98,20 @@ export function validateCredentials(value: unknown): Credentials {
     throw new Error("Invalid credentials or required Drive scope missing");
   if (v.folderId && !/^[\w-]+$/u.test(v.folderId as string))
     throw new Error("Invalid remote folder identity");
+  if (
+    v.refreshTokenExpiresAt !== undefined &&
+    (!Number.isSafeInteger(v.refreshTokenExpiresAt) ||
+      (v.refreshTokenExpiresAt as number) <= 0)
+  )
+    throw new Error("Invalid refresh-token expiry");
   return {
+    ...(photoUrl(v.photoUrl) ? { photoUrl: photoUrl(v.photoUrl) } : {}),
+    ...(typeof v.displayName === "string" && v.displayName.length <= 512
+      ? { displayName: v.displayName }
+      : {}),
+    ...(v.refreshTokenExpiresAt !== undefined
+      ? { refreshTokenExpiresAt: v.refreshTokenExpiresAt as number }
+      : {}),
     version: 1,
     clientType: "desktop",
     clientId: v.clientId as string,
@@ -82,7 +125,8 @@ export function validateCredentials(value: unknown): Credentials {
   };
 }
 export function parseEnvelope(raw: string): Envelope {
-  if (raw.length > 100000) throw new Error("Credential file too large");
+  if (raw.length > MAX_CREDENTIAL_FILE_SIZE)
+    throw new Error("Credential file too large");
   let v: Envelope;
   try {
     v = JSON.parse(raw) as Envelope;
@@ -92,7 +136,7 @@ export function parseEnvelope(raw: string): Envelope {
   if (
     !v ||
     v.purpose !== "obsidian-remote-sync-credentials" ||
-    v.version !== 1 ||
+    (v.version !== 1 && v.version !== 2) ||
     v.cipher !== "AES-256-GCM" ||
     v.kdf !== "PBKDF2-SHA256" ||
     v.iterations !== 600000 ||
@@ -123,19 +167,23 @@ async function derive(
   );
 }
 export async function seal(
-  credentials: Credentials,
+  credentials: Credentials | RemoteConfiguration,
   key: CryptoKey,
   salt: string,
 ): Promise<Envelope> {
+  const payload =
+    credentials.version === 2
+      ? validateConfiguration(credentials)
+      : validateCredentials(credentials);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: AAD },
+    { name: "AES-GCM", iv, additionalData: aad(credentials.version) },
     key,
-    encoder.encode(JSON.stringify(validateCredentials(credentials))),
+    encoder.encode(JSON.stringify(payload)),
   );
   return {
     purpose: "obsidian-remote-sync-credentials",
-    version: 1,
+    version: credentials.version,
     cipher: "AES-256-GCM",
     kdf: "PBKDF2-SHA256",
     iterations: 600000,
@@ -145,7 +193,7 @@ export async function seal(
   };
 }
 export async function encrypt(
-  credentials: Credentials,
+  credentials: Credentials | RemoteConfiguration,
   passphrase: string,
 ): Promise<{ envelope: Envelope; key: CryptoKey }> {
   if (passphrase.length < 12)
@@ -154,25 +202,29 @@ export async function encrypt(
     key = await derive(passphrase, salt);
   return { envelope: await seal(credentials, key, base64(salt)), key };
 }
-export async function decrypt(
+export async function decryptConfiguration(
   envelope: Envelope,
   passphrase: string,
-): Promise<{ credentials: Credentials; key: CryptoKey }> {
+): Promise<{ configuration: RemoteConfiguration; key: CryptoKey }> {
   parseEnvelope(JSON.stringify(envelope));
   const key = await derive(passphrase, unbase64(envelope.salt));
   try {
     const clear = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: unbase64(envelope.iv), additionalData: AAD },
+      {
+        name: "AES-GCM",
+        iv: unbase64(envelope.iv),
+        additionalData: aad(envelope.version),
+      },
       key,
       unbase64(envelope.ciphertext),
     );
     try {
-      return {
-        credentials: validateCredentials(
-          JSON.parse(new TextDecoder().decode(clear)),
-        ),
-        key,
-      };
+      const payload: unknown = JSON.parse(new TextDecoder().decode(clear));
+      const configuration =
+        envelope.version === 2
+          ? validateConfiguration(payload)
+          : migrateCredentials(validateCredentials(payload));
+      return { configuration, key };
     } finally {
       new Uint8Array(clear).fill(0);
     }
@@ -181,4 +233,15 @@ export async function decrypt(
       "Wrong passphrase, damaged bundle or invalid credential payload",
     );
   }
+}
+
+export async function decrypt(
+  envelope: Envelope,
+  passphrase: string,
+): Promise<{ credentials: Credentials; key: CryptoKey }> {
+  const result = await decryptConfiguration(envelope, passphrase);
+  return {
+    credentials: selectedCredentials(result.configuration),
+    key: result.key,
+  };
 }

@@ -48,6 +48,7 @@ export class HistoryModal extends Modal {
     app: App,
     private store: SyncStateStore,
     private filter = "",
+    private contextFilter = "",
   ) {
     super(app);
   }
@@ -71,10 +72,12 @@ export class HistoryModal extends Modal {
         this.store.state.operations,
         this.store.state.journal,
       );
-      const commits = all.filter((commit) =>
-        commit.operations.some((operation) =>
-          matchesFile(operation, this.filter),
-        ),
+      const commits = all.filter(
+        (commit) =>
+          (!this.contextFilter || commit.context === this.contextFilter) &&
+          commit.operations.some((operation) =>
+            matchesFile(operation, this.filter),
+          ),
       );
       const overview = area.createDiv({ cls: "remote-sync-history-overview" });
       for (const [label, count] of [
@@ -120,7 +123,7 @@ export class HistoryModal extends Modal {
         const title = summary.createDiv({ cls: "remote-sync-commit-title" });
         title.createEl("strong", { text: `Sync · ${stamp(commit.startedAt)}` });
         title.createEl("span", {
-          text: `${commit.operations.length} file operation${commit.operations.length === 1 ? "" : "s"}`,
+          text: `${commit.operations.length} file operation${commit.operations.length === 1 ? "" : "s"}${commit.operations[0]?.remoteName ? ` · ${commit.operations[0].remoteName}` : ""}`,
           cls: "remote-sync-history-caption",
         });
         const [label, tone] = outcome(commit);
@@ -170,14 +173,17 @@ export class HistoryModal extends Modal {
       const scans = area.createEl("details", {
         cls: "remote-sync-history-scans",
       });
+      const observations = this.store.state.observations.filter(
+        (scan) => !this.contextFilter || scan.context === this.contextFilter,
+      );
       scans.createEl("summary", {
-        text: `Scan history · ${this.store.state.observations.length}`,
+        text: `Scan history · ${observations.length}`,
       });
       scans.createEl("p", {
         text: "Scans inspect files; they do not apply changes or create sync commits.",
         cls: "remote-sync-history-caption",
       });
-      for (const scan of [...this.store.state.observations].reverse()) {
+      for (const scan of [...observations].reverse()) {
         const files = scan.files.filter(
           (file) =>
             !this.filter ||
@@ -210,6 +216,29 @@ export class HistoryModal extends Modal {
         cls: "remote-sync-history-caption",
       });
     };
+    const contexts = new Map<string, string>();
+    for (const commit of syncCommits(
+      this.store.state.operations,
+      this.store.state.journal,
+    ))
+      if (!contexts.has(commit.context))
+        contexts.set(
+          commit.context,
+          commit.operations[0]?.remoteName ??
+            `Previous remote ${contexts.size + 1}`,
+        );
+    if (contexts.size > 1 || this.contextFilter)
+      search.addDropdown((d) => {
+        d.addOption("", "All remotes");
+        for (const [context, name] of contexts) d.addOption(context, name);
+        if (this.contextFilter && !contexts.has(this.contextFilter))
+          d.addOption(this.contextFilter, "Selected remote");
+        d.setValue(this.contextFilter).onChange((value) => {
+          this.contextFilter = value;
+          render();
+        });
+        d.selectEl.setAttribute("aria-label", "Filter history by remote");
+      });
     search.addText((input) => {
       input.inputEl.setAttribute(
         "aria-label",

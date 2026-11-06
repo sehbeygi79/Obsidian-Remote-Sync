@@ -4,6 +4,8 @@ import { confirm, downloadFile, form } from "./Dialogs";
 import { HistoryModal } from "./HistoryModal";
 import { notify } from "./Notifications";
 import { pageHeader } from "./PageHeader";
+import { photoSelector } from "./PhotoSelector";
+import { tokenStatus } from "./TokenStatus";
 import { syncCommits } from "./HistoryGroups";
 class FolderBrowser extends Modal {
   private stack: { id: string; name: string }[] = [
@@ -13,6 +15,7 @@ class FolderBrowser extends Modal {
     app: App,
     private plugin: RemoteSyncPlugin,
     private refresh: () => void,
+    private accountRef?: string,
   ) {
     super(app);
   }
@@ -29,7 +32,9 @@ class FolderBrowser extends Modal {
     this.contentEl.createEl("p", {
       text: this.stack.map((f) => f.name).join(" / "),
     });
-    const folders = await this.plugin.drive().folders(current.id);
+    const folders = await this.plugin
+      .drive(this.accountRef)
+      .folders(current.id);
     const nav = new Setting(this.contentEl);
     if (this.stack.length > 1)
       nav.addButton((b) =>
@@ -47,7 +52,7 @@ class FolderBrowser extends Modal {
           .setCta()
           .onClick(() =>
             this.plugin.run(async () => {
-              await this.plugin.chooseFolder(current.id);
+              await this.plugin.chooseFolder(current.id, this.accountRef);
               this.refresh();
               this.close();
             }),
@@ -69,7 +74,7 @@ class FolderBrowser extends Modal {
           )
             return;
           const folder = await this.plugin
-            .drive()
+            .drive(this.accountRef)
             .createFolder(input.name!, current.id);
           this.stack.push(folder);
           await this.render();
@@ -93,6 +98,13 @@ class FolderBrowser extends Modal {
   }
 }
 export class RemoteSyncSettings extends PluginSettingTab {
+  private countdownTimer?: number;
+  private viewedAccountRef?: string;
+  hide(): void {
+    if (this.countdownTimer !== undefined)
+      window.clearInterval(this.countdownTimer);
+    this.countdownTimer = undefined;
+  }
   constructor(
     app: App,
     private plugin: RemoteSyncPlugin,
@@ -100,6 +112,8 @@ export class RemoteSyncSettings extends PluginSettingTab {
     super(app, plugin);
   }
   display(): void {
+    this.hide();
+    const countdowns: (() => void)[] = [];
     const host = this.containerEl;
     host.empty();
     // Obsidian sizes and centers the host pane with its own responsive padding.
@@ -125,7 +139,7 @@ export class RemoteSyncSettings extends PluginSettingTab {
     };
     const account = section("Google account", "");
     const folders = section(
-      "Sync folders",
+      "Remote",
       "Only materials/ is synchronized. All synchronization starts with a manual review.",
     );
     const credentialTools = section(
@@ -168,33 +182,81 @@ export class RemoteSyncSettings extends PluginSettingTab {
           if (warning) b.setWarning();
         });
     const credentials = this.plugin.credentials;
-    const connected = credentials.unlocked;
-    const status = account.createDiv({ cls: "remote-sync-account-status" });
-    const identity = status.createDiv();
-    identity.createEl("strong", {
-      text: connected
-        ? credentials.credentials.accountEmail
-        : credentials.envelope
-          ? "Your account is saved"
-          : "Connect Google Drive",
-    });
-    identity.createEl("p", {
-      text: connected
-        ? "Ready for manual synchronization"
-        : credentials.envelope
-          ? "Unlock to view your account and selected folder"
-          : "Connect on desktop or import credentials from another device.",
-      cls: "remote-sync-settings-caption",
-    });
-    status.createEl("span", {
-      text: connected
-        ? "Unlocked"
-        : credentials.envelope
-          ? "Locked"
-          : "Not connected",
-      cls: `remote-sync-badge remote-sync-tone-${connected ? "equal" : credentials.envelope ? "deletion" : "neutral"}`,
-    });
-    if (connected) {
+    const unlocked = credentials.unlocked;
+    const accounts = unlocked ? credentials.accounts : [];
+    const profiles = unlocked ? credentials.remotes : [];
+    const connected = unlocked && accounts.length > 0;
+    const viewedAccount =
+      accounts.find((a) => a.id === this.viewedAccountRef) ??
+      accounts.find(
+        (a) => a.id === credentials.configuration.activeAccountId,
+      ) ??
+      accounts[0];
+    const newRemoteAccountRef = viewedAccount?.id;
+    if (viewedAccount) {
+      photoSelector(
+        account,
+        accounts.map((saved) => ({
+          id: saved.id,
+          title:
+            saved.credentials.displayName || saved.credentials.accountEmail,
+          description: saved.credentials.displayName
+            ? saved.credentials.accountEmail
+            : "Google Drive account",
+          account: saved.credentials,
+        })),
+        viewedAccount.id,
+        "Google account",
+        (id) => {
+          this.viewedAccountRef = id;
+          this.display();
+        },
+      );
+      countdowns.push(tokenStatus(account, this.plugin, viewedAccount.id));
+      new Setting(account)
+        .setName("Account tools")
+        .addButton((b) =>
+          b
+            .setButtonText("Check account")
+            .onClick(() =>
+              run(() => this.plugin.refreshAccount(viewedAccount.id)),
+            ),
+        )
+        .addButton((b) =>
+          b
+            .setButtonText("Reconnect")
+            .onClick(() => run(() => this.plugin.connect(viewedAccount.id))),
+        )
+        .addButton((b) =>
+          b
+            .setButtonText("Remove account")
+            .onClick(() =>
+              run(() => this.plugin.removeAccount(viewedAccount.id)),
+            ),
+        );
+      account.createEl("p", {
+        text: "Access tokens renew automatically. When authorization expires, use Reconnect to sign in again. Google may revoke access earlier than the reported deadline.",
+        cls: "remote-sync-settings-caption",
+      });
+    } else {
+      const status = account.createDiv({ cls: "remote-sync-account-status" });
+      status.createEl("strong", {
+        text: unlocked
+          ? "No Google accounts yet"
+          : credentials.envelope
+            ? "Your accounts are saved"
+            : "Connect Google Drive",
+      });
+      status.createEl("span", {
+        text: unlocked
+          ? "Unlocked"
+          : credentials.envelope
+            ? "Locked"
+            : "Not connected",
+        cls: "remote-sync-badge remote-sync-tone-neutral",
+      });
+    }
+    if (unlocked) {
       // Lock checks plugin.working itself; wrapping it in run() would block it.
       new Setting(account)
         .setName("Session")
@@ -207,15 +269,15 @@ export class RemoteSyncSettings extends PluginSettingTab {
         );
     } else if (credentials.envelope) {
       button(account, "Session", "Unlock", () => this.plugin.unlock());
-    } else {
+    }
+    if (!credentials.envelope || unlocked)
       button(
         account,
-        "Desktop connection",
-        "Connect on Ubuntu",
+        accounts.length ? "Another account" : "Desktop connection",
+        accounts.length ? "Add Google account" : "Connect on Ubuntu",
         () => this.plugin.connect(),
-        "Sign in using your Desktop OAuth client.",
+        "Accounts are added without replacing your other connections.",
       );
-    }
     const paths = folders.createDiv({ cls: "remote-sync-settings-paths" });
     const local = paths.createDiv({ cls: "remote-sync-settings-path" });
     local.createEl("span", {
@@ -243,14 +305,67 @@ export class RemoteSyncSettings extends PluginSettingTab {
       text: "An owned, writable My Drive folder.",
       cls: "remote-sync-settings-caption",
     });
+    if (profiles.length) {
+      photoSelector(
+        folders,
+        profiles.map((profile) => ({
+          id: profile.id,
+          title: profile.name,
+          description: `${credentials.account(profile.accountRef).accountEmail} · ${profile.folderName}`,
+          account: credentials.account(profile.accountRef),
+        })),
+        credentials.activeRemote?.id ?? profiles[0]!.id,
+        "Remote profile",
+        (id) => {
+          run(async () => {
+            await this.plugin.selectRemote(id);
+            this.viewedAccountRef =
+              this.plugin.credentials.activeRemote?.accountRef;
+          });
+        },
+      );
+      const profile = credentials.activeRemote;
+      if (profile)
+        new Setting(folders)
+          .setName("Remote actions")
+          .addButton((b) =>
+            b
+              .setButtonText("Rename")
+              .onClick(() => run(() => this.plugin.renameRemote(profile.id))),
+          )
+          .addButton((b) =>
+            b
+              .setButtonText("Export")
+              .onClick(() =>
+                run(() => this.plugin.exportCredentials(profile.id)),
+              ),
+          )
+          .addButton((b) =>
+            b
+              .setButtonText("Remove")
+              .onClick(() => run(() => this.plugin.removeRemote(profile.id))),
+          );
+    }
+    folders.createEl("p", {
+      text: "All remotes share materials/. Changes downloaded from one remote are visible to the next remote you scan. Each sync needs its own review.",
+      cls: "remote-sync-settings-caption",
+    });
     new Setting(folders)
-      .setName("Remote folder")
+      .setName("Add remote")
+      .setDesc(
+        viewedAccount
+          ? `Using ${viewedAccount.credentials.accountEmail}. Choose another account above if needed.`
+          : "Connect or unlock a Google account first.",
+      )
       .addButton((b) =>
         b
           .setButtonText("Browse folders")
           .onClick(() =>
-            new FolderBrowser(this.app, this.plugin, () =>
-              this.display(),
+            new FolderBrowser(
+              this.app,
+              this.plugin,
+              () => this.display(),
+              newRemoteAccountRef,
             ).open(),
           ),
       )
@@ -261,7 +376,11 @@ export class RemoteSyncSettings extends PluginSettingTab {
             const input = await form(this.app, "Select existing folder", [
               { key: "id", label: "Google Drive folder ID" },
             ]);
-            if (input) await this.plugin.chooseFolder(input.id!.trim());
+            if (input)
+              await this.plugin.chooseFolder(
+                input.id!.trim(),
+                newRemoteAccountRef,
+              );
           }),
         ),
       );
@@ -271,10 +390,11 @@ export class RemoteSyncSettings extends PluginSettingTab {
       "Validate",
       async () => {
         await this.plugin.unlock();
+        if (!credentials.activeRemote)
+          throw new Error("Add and select a remote first");
+        await this.plugin.refreshAccount(credentials.activeRemote.accountRef);
         const drive = this.plugin.drive();
-        await drive.account();
         await drive.validateFolder();
-        await this.plugin.manager().token(true);
         notify(
           "Remote Sync: account, refresh grant and folder access verified.",
           "success",
@@ -314,7 +434,9 @@ export class RemoteSyncSettings extends PluginSettingTab {
     });
     new Setting(credentialTools)
       .setName("Move credentials between devices")
-      .setDesc("Transfer the encrypted file separately from its passphrase.")
+      .setDesc(
+        "Export only the selected remote and its account. Transfer the encrypted file separately from its passphrase.",
+      )
       .addButton((b) =>
         b
           .setButtonText("Import")
@@ -335,14 +457,6 @@ export class RemoteSyncSettings extends PluginSettingTab {
       false,
       !credentials.envelope,
     );
-    if (credentials.envelope)
-      button(
-        credentialTools,
-        "Desktop connection",
-        "Reconnect",
-        () => this.plugin.connect(),
-        "Use a different account or renew authorization.",
-      );
     button(
       credentialTools,
       "Disconnect this device",
@@ -352,12 +466,11 @@ export class RemoteSyncSettings extends PluginSettingTab {
           await confirm(
             this.app,
             "Disconnect",
-            "Erase this device’s stored credentials? Other devices remain connected. Revoke the Google grant separately in your Google account if desired.",
+            "Erase all Google accounts and remote profiles stored on this device? Other devices remain connected. Revoke the Google grant separately in your Google account if desired.",
             true,
           )
         ) {
-          await credentials.disconnect();
-          this.plugin.executor = null;
+          await this.plugin.disconnectAccounts();
         }
       },
       "Removes local credentials. Remote files stay in place.",
@@ -513,6 +626,16 @@ export class RemoteSyncSettings extends PluginSettingTab {
         );
       },
     );
+    if (countdowns.length && typeof window !== "undefined") {
+      this.countdownTimer = window.setInterval(() => {
+        if (!host.isConnected) {
+          this.hide();
+          return;
+        }
+        for (const update of countdowns) update();
+      }, 1000);
+      this.plugin.registerInterval?.(this.countdownTimer);
+    }
     el.createEl("p", {
       text: `Remote Sync · Version ${this.plugin.manifest.version}`,
       cls: "remote-sync-settings-footnote",

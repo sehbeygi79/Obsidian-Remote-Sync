@@ -60,6 +60,9 @@ export interface Change {
   suggested: Action;
 }
 export interface Review {
+  profileId?: string;
+  remoteName?: string;
+  selectionVersion?: number;
   local: Snapshot;
   remote: Snapshot;
   changes: Change[];
@@ -112,6 +115,8 @@ export interface Observation {
 export type Status =
   "Running" | "Success" | "Failed" | "Needs Rescan" | "Skipped" | "Cancelled";
 export interface Operation {
+  remoteProfileId?: string;
+  remoteName?: string;
   id: string;
   session: string;
   at: number;

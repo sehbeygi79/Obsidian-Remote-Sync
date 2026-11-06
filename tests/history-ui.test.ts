@@ -153,3 +153,34 @@ describe("sync commit history", () => {
     expect(text(root)).toContain("Unresolved");
   });
 });
+
+it("filters sync commits and scan observations by remote without deleting other history", () => {
+  const store = memoryStore();
+  store.state.operations = [
+    operation("one", { context: "context-one", remoteName: "First remote" }),
+    operation("two", { context: "context-two", remoteName: "Other remote" }),
+  ];
+  store.state.observations = [
+    { at: 1000, context: "context-one", files: [] },
+    { at: 2000, context: "context-two", files: [] },
+  ];
+  const modal = new HistoryModal({} as App, store, "", "context-one");
+  modal.open();
+  const root = (modal as unknown as Modal).contentEl;
+  expect(root.all((el) => el.classes.has("remote-sync-commit"))).toHaveLength(
+    1,
+  );
+  expect(text(root.querySelector(".remote-sync-commit-list")!)).toContain(
+    "First remote",
+  );
+  expect(text(root)).toContain("Scan history · 1");
+  const filter = root.querySelector("select")!;
+  filter.value = "";
+  filter.listeners.change!();
+  expect(root.all((el) => el.classes.has("remote-sync-commit"))).toHaveLength(
+    2,
+  );
+  expect(text(root)).toContain("Scan history · 2");
+  expect(store.state.operations).toHaveLength(2);
+  modal.close();
+});

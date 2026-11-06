@@ -4,6 +4,7 @@ interface UiEvent {
   preventDefault?(): void;
   key?: string;
   target?: UiElement;
+  relatedTarget?: UiElement | null;
   isComposing?: boolean;
 }
 export class UiElement {
@@ -26,6 +27,11 @@ export class UiElement {
     this.children = [];
   }
   focus(): void {}
+  contains(child: UiElement | null): boolean {
+    return (
+      child === this || this.children.some((element) => element.contains(child))
+    );
+  }
   addClass(...names: string[]): void {
     names.forEach((name) => this.classes.add(name));
   }

@@ -8,7 +8,9 @@ const paths = [];
 const files = new Map();
 const host = {
   Plugin: class {},
-  PluginSettingTab: class {},
+  PluginSettingTab: class {
+    containerEl = { isConnected: false };
+  },
   Modal: class {},
   Setting: class {},
   Notice: class {},
@@ -44,7 +46,7 @@ const plugin = new context.module.exports.default();
 plugin.manifest = {
   id: "obsidian-remote-sync",
   name: "Remote Sync",
-  version: "1.0.0",
+  version: "1.1.0",
   dir: ".obsidian/plugins/obsidian-remote-sync",
 };
 plugin.app = {

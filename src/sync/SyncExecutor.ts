@@ -34,6 +34,7 @@ export class SyncExecutor {
     private remote: RemoteBackend,
     private store: SyncStateStore,
     private context: () => string,
+    private reviewValid: () => boolean = () => true,
   ) {}
   cancel(): void {
     this.cancelled = true;
@@ -49,6 +50,7 @@ export class SyncExecutor {
     current: { local: Snapshot; remote: Snapshot },
   ): void {
     if (
+      !this.reviewValid() ||
       this.context() !== review.context ||
       current.remote.identity !== review.remote.identity ||
       current.local.identity !== review.local.identity
@@ -84,7 +86,7 @@ export class SyncExecutor {
       throw new Error(
         "Additional confirmation required: more than 25% of synchronized files would be trashed",
       );
-    if (this.context() !== review.context)
+    if (!this.reviewValid() || this.context() !== review.context)
       throw new Error("Needs Rescan: storage context changed");
     if (new Set(selected.map((s) => s.change.key)).size !== selected.length)
       throw new Error("Duplicate selected change");
@@ -106,6 +108,8 @@ export class SyncExecutor {
           session,
           at: Date.now(),
           context: review.context,
+          remoteProfileId: review.profileId,
+          remoteName: review.remoteName,
           path: c.path,
           action,
           status: "Running",
@@ -244,6 +248,7 @@ export class SyncExecutor {
           }
           const after = await this.snapshots();
           if (
+            !this.reviewValid() ||
             this.context() !== review.context ||
             after.remote.identity !== review.remote.identity
           )
@@ -353,6 +358,8 @@ export class SyncExecutor {
             session,
             at: Date.now(),
             context: review.context,
+            remoteProfileId: review.profileId,
+            remoteName: review.remoteName,
             path: c.path,
             action,
             status: "Cancelled",

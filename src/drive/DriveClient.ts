@@ -1,3 +1,4 @@
+import { photoUrl } from "../auth/CredentialEncryption";
 import type { AuthProvider } from "../auth/OAuthManager";
 import { affected, basename, parent, relative, segment } from "../utils/paths";
 import { fingerprint } from "../sync/ReconciliationEngine";
@@ -45,7 +46,14 @@ interface Page {
   nextPageToken?: string;
   incompleteSearch?: boolean;
 }
+export interface DriveAccount {
+  id: string;
+  email: string;
+  photoUrl?: string;
+  displayName?: string;
+}
 export class DriveClient implements RemoteBackend {
+  accountInformation?: DriveAccount;
   private etags = new Map<string, string>();
   constructor(
     private http: Http,
@@ -96,15 +104,30 @@ export class DriveClient implements RemoteBackend {
     ok(r);
     return json<T>(r);
   }
-  async account(): Promise<{ id: string; email: string }> {
+  async account(): Promise<DriveAccount> {
     const r = await this.data<{
-      user?: { permissionId?: string; emailAddress?: string };
-    }>("/about?fields=user(permissionId,emailAddress)");
+      user?: {
+        permissionId?: string;
+        emailAddress?: string;
+        photoLink?: string;
+        displayName?: string;
+      };
+    }>("/about?fields=user(permissionId,emailAddress,displayName,photoLink)");
     if (!r.user?.permissionId || !r.user.emailAddress)
       throw new Error("Cannot verify Google account");
     if (this.accountId && this.accountId !== r.user.permissionId)
       throw new Error("Wrong Google account. No reconciliation performed.");
-    return { id: r.user.permissionId, email: r.user.emailAddress };
+    this.accountInformation = {
+      id: r.user.permissionId,
+      email: r.user.emailAddress,
+      ...(photoUrl(r.user.photoLink)
+        ? { photoUrl: photoUrl(r.user.photoLink) }
+        : {}),
+      ...(typeof r.user.displayName === "string"
+        ? { displayName: r.user.displayName }
+        : {}),
+    };
+    return this.accountInformation;
   }
   async metadata(id: string): Promise<DriveFile> {
     if (!/^[\w-]+$/u.test(id)) throw new Error("Invalid Drive ID");

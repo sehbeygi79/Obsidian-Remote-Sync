@@ -1,4 +1,5 @@
 import { App, Modal, Setting } from "obsidian";
+import { MAX_CREDENTIAL_FILE_SIZE } from "../auth/CredentialEncryption";
 import { pageHeader } from "./PageHeader";
 export function confirm(
   app: App,
@@ -135,7 +136,7 @@ export function pickFile(): Promise<string | null> {
       () => {
         const file = input.files?.[0];
         if (!file) return resolve(null);
-        if (file.size > 100000)
+        if (file.size > MAX_CREDENTIAL_FILE_SIZE)
           return reject(new Error("Credential file too large"));
         void file.text().then(resolve, reject);
       },

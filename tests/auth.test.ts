@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { migrateCredentials } from "../src/auth/RemoteConfiguration";
 import { CredentialStore } from "../src/auth/CredentialStore";
 import {
   decrypt,
@@ -114,7 +115,7 @@ describe("encrypted credentials and transfer", () => {
     expect(Object.keys(s.credentials)).not.toContain("baselines");
   });
   it("does not replace credentials when persistent write fails", async () => {
-    const source = await encrypt(c, pass),
+    const source = await encrypt(migrateCredentials(c), pass),
       s = new CredentialStore(source.envelope, async () => {
         throw new Error("disk");
       });

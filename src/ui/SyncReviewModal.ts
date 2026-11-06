@@ -7,6 +7,7 @@ import { confirm } from "./Dialogs";
 import { HistoryModal } from "./HistoryModal";
 import { size, stamp } from "./format";
 import { notify } from "./Notifications";
+import { photoSelector } from "./PhotoSelector";
 import { pageHeader } from "./PageHeader";
 import { renderOperationSummary } from "./OperationSummary";
 const LABELS: Record<Action, string> = {
@@ -104,7 +105,11 @@ export class SyncReviewModal extends Modal {
       !this.scanError &&
       unlocked &&
       !!this.plugin.executor &&
-      this.plugin.context() === review.context;
+      this.plugin.context() === review.context &&
+      (review.selectionVersion === undefined ||
+        review.selectionVersion === this.plugin.selectionVersion) &&
+      (!review.profileId ||
+        review.profileId === this.plugin.credentials.activeRemote?.id);
     const changes = ready ? review!.changes : [];
     const last = Math.max(
       0,
@@ -112,13 +117,51 @@ export class SyncReviewModal extends Modal {
         (b) => b.syncedAt,
       ),
     );
+    const profiles = unlocked ? (this.plugin.credentials.remotes ?? []) : [];
+    if (profiles.length) {
+      photoSelector(
+        header,
+        profiles.map((remote) => ({
+          id: remote.id,
+          title: remote.name,
+          description: this.plugin.credentials.account(remote.accountRef)
+            .accountEmail,
+          account: this.plugin.credentials.account(remote.accountRef),
+        })),
+        this.plugin.credentials.activeRemote?.id ?? "",
+        "Remote profile",
+        (id) => {
+          if (this.plugin.working || this.plugin.executor?.busy) {
+            notify(
+              "Remote Sync: finish or cancel the active operation before switching remotes.",
+              "warning",
+            );
+            return;
+          }
+          this.plugin.run(async () => {
+            try {
+              await this.plugin.selectRemote(id);
+              this.review = undefined;
+              await this.loadReview();
+            } finally {
+              if (!this.closed) this.render();
+            }
+          });
+        },
+        this.applying || this.scanning,
+      );
+    }
     const locations = header.createDiv({ cls: "remote-sync-locations" });
     metadata(locations, "Local", "materials/");
     metadata(
       locations,
       "Remote",
       unlocked
-        ? this.plugin.credentials.credentials.folderName || "Not selected"
+        ? review?.remoteName && ready
+          ? `${review.remoteName} · ${this.plugin.credentials.credentials.folderName}`
+          : this.plugin.credentials.accounts?.length === 0
+            ? "Add a remote in settings"
+            : this.plugin.credentials.credentials.folderName || "Not selected"
         : "Unlock to view folder",
     );
     metadata(locations, "Last confirmed sync", stamp(last));
@@ -210,7 +253,9 @@ export class SyncReviewModal extends Modal {
     controls.addButton((b) =>
       b
         .setButtonText("History")
-        .onClick(() => new HistoryModal(this.app, this.plugin.state).open()),
+        .onClick(() =>
+          new HistoryModal(this.app, this.plugin.state, "", context).open(),
+        ),
     );
     const badges = el.createDiv({ cls: "remote-sync-counts" });
     for (const [category, count] of counts)
@@ -374,7 +419,12 @@ export class SyncReviewModal extends Modal {
         b
           .setButtonText("Per-file history")
           .onClick(() =>
-            new HistoryModal(this.app, this.plugin.state, c.path).open(),
+            new HistoryModal(
+              this.app,
+              this.plugin.state,
+              c.path,
+              context,
+            ).open(),
           ),
       );
       if (this.consumed.has(c.key))
@@ -436,7 +486,9 @@ export class SyncReviewModal extends Modal {
                   this.scanError ||
                   !this.plugin.credentials.unlocked ||
                   !this.plugin.executor ||
-                  this.plugin.context() !== review.context
+                  this.plugin.context() !== review.context ||
+                  (review.selectionVersion !== undefined &&
+                    review.selectionVersion !== this.plugin.selectionVersion)
                 )
                   throw new Error(
                     "Credentials locked or configuration changed. Scan before applying.",
@@ -455,7 +507,13 @@ export class SyncReviewModal extends Modal {
                   !(await confirm(
                     this.app,
                     "Confirm changes",
-                    (container) => renderOperationSummary(container, selected),
+                    (container) => {
+                      container.createEl("p", {
+                        text: `Remote: ${review.remoteName ?? this.plugin.credentials.credentials.folderName}`,
+                        cls: "remote-sync-summary-intro",
+                      });
+                      renderOperationSummary(container, selected);
+                    },
                     destructive > 0,
                   ))
                 )
