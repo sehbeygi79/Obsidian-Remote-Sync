@@ -430,6 +430,14 @@ describe("stale preview and failures", () => {
         b,
       ),
     ).toBe(false);
+    // Ignored baselines remain stored, but must not dilute the deletion guard.
+    expect(
+      massDeletion(
+        [{ change: s.review.changes[0]!, action: "trash-remote" }],
+        b,
+        s.review,
+      ),
+    ).toBe(true);
   });
   it("cancels between operations, preserving verified completions and pending files", async () => {
     const s = await setup({ a: "a", b: "b" }, {});

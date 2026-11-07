@@ -4,7 +4,7 @@ import RemoteSyncPlugin from "../src/main";
 import type { App } from "obsidian";
 import type { Review } from "../src/sync/types";
 import { Modal } from "./ui-host";
-import { snapshot } from "./helpers";
+import { baseline, snapshot } from "./helpers";
 function fixture() {
   const data = new Map<string, string>();
   const adapter = {
@@ -20,7 +20,7 @@ function fixture() {
   const plugin = new RemoteSyncPlugin({} as App, {
     id: "obsidian-remote-sync",
     name: "Remote Sync",
-    version: "1.1.0",
+    version: "1.2.0",
     minAppVersion: "1.8.7",
     description: "",
     author: "",
@@ -29,6 +29,59 @@ function fixture() {
   return { plugin, adapter, data };
 }
 describe("manual lifecycle", () => {
+  it("keeps folder choices on this device and isolates sync contexts", async () => {
+    const f = fixture();
+    await f.plugin.onload();
+    Object.assign(f.plugin.app.vault.adapter, {
+      stat: async (p: string) =>
+        ["", "Notes"].includes(p)
+          ? { type: "folder", size: 0, mtime: 0, ctime: 0 }
+          : null,
+    });
+    await f.plugin.credentials.install(
+      {
+        version: 1,
+        clientType: "desktop",
+        clientId: "desktop.apps.googleusercontent.com",
+        clientSecret: "secret",
+        refreshToken: "refresh",
+        scopes: ["https://www.googleapis.com/auth/drive"],
+        accountId: "account",
+        accountEmail: "user@test",
+        folderId: "folder",
+        folderName: "Remote",
+      },
+      "a long passphrase",
+    );
+    const original = f.plugin.context();
+    const version = f.plugin.selectionVersion;
+    await f.plugin.addLocalFolder("./");
+    const root = f.plugin.context();
+    expect(root).not.toBe(original);
+    expect(f.plugin.selectionVersion).toBeGreaterThan(version);
+    await f.plugin.addLocalFolder("./Notes/");
+    await expect(f.plugin.addLocalFolder("Notes")).rejects.toThrow(
+      "already configured",
+    );
+    expect(f.plugin.context()).not.toBe(root);
+    await f.plugin.selectLocalFolder("materials");
+    expect(f.plugin.context()).toBe(original);
+    const saved = new (
+      f.plugin.state
+        .constructor as typeof import("../src/sync/SyncStateStore").SyncStateStore
+    )(
+      {
+        read: f.adapter.read,
+        write: f.adapter.write,
+        exists: f.adapter.exists,
+      },
+      `${f.plugin.privateDirectory}/state`,
+    );
+    await saved.load();
+    expect(saved.state.localFolders).toEqual(["materials", "", "Notes"]);
+    expect(saved.state.activeLocalFolder).toBe("materials");
+    f.plugin.onunload();
+  });
   it("opens Review Status before awaiting the first scan", async () => {
     const f = fixture();
     await f.plugin.onload();
@@ -148,6 +201,22 @@ describe("manual observation pipeline", () => {
     expect(f.plugin.state.state.seen[context]![key]!.firstSeenAt).toBe(123);
     expect(f.plugin.state.state.observations).toHaveLength(2);
     expect(f.plugin.state.state.baselines).toEqual({});
+    const confirmed = baseline();
+    f.plugin.state.state.baselines[context] = { [confirmed.key]: confirmed };
+    vi.mocked(adapter.readBinary).mockClear();
+    const selectionVersion = f.plugin.selectionVersion;
+    await f.plugin.saveIgnorePatterns("# private file\nmaterials/a.pdf\n");
+    expect(f.plugin.selectionVersion).toBeGreaterThan(selectionVersion);
+    expect(f.plugin.executor).toBeNull();
+    const ignored = await f.plugin.scan();
+    expect(ignored.changes).toEqual([]);
+    expect(ignored.local.files).toEqual({});
+    expect(adapter.readBinary).not.toHaveBeenCalled();
+    expect(f.plugin.state.state.baselines[context]).toEqual({
+      [confirmed.key]: confirmed,
+    });
+    await f.plugin.saveIgnorePatterns("");
+    expect((await f.plugin.scan()).changes).toHaveLength(1);
     const stored = [...f.data.values()].join("");
     expect(stored).not.toContain('"refreshToken"');
     expect(stored).not.toContain('"clientSecret"');

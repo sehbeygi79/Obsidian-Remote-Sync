@@ -1,5 +1,7 @@
 import { checksum, randomId } from "../utils/hashing";
 import type { DeviceState } from "./types";
+import { localRoot, ROOT } from "../utils/paths";
+import { IgnoreRules } from "../utils/IgnoreRules";
 export interface PrivateStorage {
   read(path: string): Promise<string>;
   write(path: string, value: string): Promise<void>;
@@ -20,6 +22,9 @@ export function freshState(): DeviceState {
     observations: [],
     operations: [],
     journal: [],
+    localFolders: [ROOT],
+    activeLocalFolder: ROOT,
+    ignorePatterns: [],
   };
 }
 export class SyncStateStore {
@@ -58,6 +63,21 @@ export class SyncStateStore {
         )
           continue;
         state.seen ??= {}; // Additive v1 migration; never infer a confirmed state.
+        state.localFolders ??= [ROOT];
+        state.activeLocalFolder ??= ROOT;
+        state.ignorePatterns ??= [];
+        new IgnoreRules(state.ignorePatterns);
+        if (
+          !Array.isArray(state.localFolders) ||
+          !state.localFolders.length ||
+          state.localFolders.some(
+            (folder) =>
+              typeof folder !== "string" || localRoot(folder) !== folder,
+          ) ||
+          new Set(state.localFolders).size !== state.localFolders.length ||
+          !state.localFolders.includes(state.activeLocalFolder)
+        )
+          throw new Error("Invalid local folder configuration");
         for (const records of Object.values(state.baselines)) {
           for (const [key, record] of Object.entries(records)) {
             if (

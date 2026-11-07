@@ -93,6 +93,8 @@ export class SyncReviewModal extends Modal {
   }
   private render(): void {
     const el = this.contentEl;
+    const fileScrollTop =
+      el.querySelector<HTMLElement>(".remote-sync-files")?.scrollTop ?? 0;
     el.empty();
     const header = pageHeader(el, "Review Status");
     header.addClass("remote-sync-review-header");
@@ -117,10 +119,45 @@ export class SyncReviewModal extends Modal {
         (b) => b.syncedAt,
       ),
     );
+    const overview = el.createDiv({ cls: "remote-sync-review-overview" });
+    const locations = overview.createEl("section", {
+      cls: "remote-sync-locations",
+      attr: { "aria-label": "Sync folders" },
+    });
+    const localField = locations.createDiv({ cls: "remote-sync-scope-field" });
+    localField.createEl("span", {
+      text: "Local",
+      cls: "remote-sync-scope-label",
+    });
+    const selectedLocal = this.plugin.localFolder;
+    photoSelector(
+      localField,
+      this.plugin.localFolders.map((path) => ({
+        id: path,
+        title: path ? `${path}/` : "Entire vault (./)",
+        description: path ? "Folder in this vault" : "All vault folders",
+        icon: path ? "folder" : "vault",
+      })),
+      selectedLocal,
+      "Local folder",
+      (path) => {
+        this.plugin.run(async () => {
+          await this.plugin.selectLocalFolder(path);
+          this.review = undefined;
+          await this.loadReview();
+        });
+      },
+      this.applying || this.scanning,
+    );
+    const remoteField = locations.createDiv({ cls: "remote-sync-scope-field" });
+    remoteField.createEl("span", {
+      text: "Remote",
+      cls: "remote-sync-scope-label",
+    });
     const profiles = unlocked ? (this.plugin.credentials.remotes ?? []) : [];
     if (profiles.length) {
       photoSelector(
-        header,
+        remoteField,
         profiles.map((remote) => ({
           id: remote.id,
           title: remote.name,
@@ -150,32 +187,29 @@ export class SyncReviewModal extends Modal {
         },
         this.applying || this.scanning,
       );
+    } else {
+      remoteField.createEl("span", {
+        text: unlocked ? "Add a remote in settings" : "Unlock to view folder",
+        cls: "remote-sync-scope-placeholder",
+      });
     }
-    const locations = header.createDiv({ cls: "remote-sync-locations" });
-    metadata(locations, "Local", "materials/");
-    metadata(
-      locations,
-      "Remote",
-      unlocked
-        ? review?.remoteName && ready
-          ? `${review.remoteName} · ${this.plugin.credentials.credentials.folderName}`
-          : this.plugin.credentials.accounts?.length === 0
-            ? "Add a remote in settings"
-            : this.plugin.credentials.credentials.folderName || "Not selected"
-        : "Unlock to view folder",
-    );
-    metadata(locations, "Last confirmed sync", stamp(last));
+    metadata(locations, "Last Sync", stamp(last));
     const counts = new Map<Category, number>();
     for (const c of changes)
       counts.set(c.category, (counts.get(c.category) ?? 0) + 1);
-    const toolbarSection = el.createDiv({ cls: "remote-sync-toolbar" });
+    const toolbarSection = overview.createEl("section", {
+      cls: "remote-sync-toolbar",
+      attr: { "aria-label": "Review controls" },
+    });
     const filterSection = toolbarSection.createEl("section", {
       cls: "remote-sync-selection-controls",
       attr: { "aria-label": "Filter" },
     });
     filterSection.createEl("h3", { text: "Filter" });
-    const toolbar = new Setting(filterSection);
-    toolbar.addDropdown((d) => {
+    const filterPicker = new Setting(
+      filterSection.createDiv({ cls: "remote-sync-filter-picker" }),
+    );
+    filterPicker.addDropdown((d) => {
       d.selectEl.setAttribute("aria-label", "Filter file status");
       d.addOption("all", "All differences");
       for (const c of [
@@ -205,7 +239,10 @@ export class SyncReviewModal extends Modal {
                 !equal(c.local, c.remote)))
           : c.category === this.filter,
     );
-    toolbar.addButton((b) =>
+    const selectionButtons = new Setting(
+      filterSection.createDiv({ cls: "remote-sync-selection-buttons" }),
+    );
+    selectionButtons.addButton((b) =>
       b
         .setButtonText("Select All")
         .setDisabled(this.applying || !ready)
@@ -220,7 +257,7 @@ export class SyncReviewModal extends Modal {
           this.render();
         }),
     );
-    toolbar.addButton((b) =>
+    selectionButtons.addButton((b) =>
       b
         .setButtonText("Deselect All")
         .setDisabled(this.applying || !ready)
@@ -242,6 +279,7 @@ export class SyncReviewModal extends Modal {
           });
         });
       b.buttonEl.addClass("remote-sync-icon-button");
+      b.buttonEl.addClass("remote-sync-scan-button");
       setIcon(
         b.buttonEl.createEl("span", {
           cls: "remote-sync-button-icon",
@@ -250,13 +288,19 @@ export class SyncReviewModal extends Modal {
         "refresh-cw",
       );
     });
-    controls.addButton((b) =>
-      b
-        .setButtonText("History")
-        .onClick(() =>
-          new HistoryModal(this.app, this.plugin.state, "", context).open(),
-        ),
-    );
+    controls.addButton((b) => {
+      b.setButtonText("History").onClick(() =>
+        new HistoryModal(this.app, this.plugin.state, "", context).open(),
+      );
+      b.buttonEl.addClass("remote-sync-icon-button");
+      setIcon(
+        b.buttonEl.createEl("span", {
+          cls: "remote-sync-button-icon",
+          attr: { "aria-hidden": "true" },
+        }),
+        "history",
+      );
+    });
     const badges = el.createDiv({ cls: "remote-sync-counts" });
     for (const [category, count] of counts)
       badges.createEl("span", {
@@ -521,6 +565,7 @@ export class SyncReviewModal extends Modal {
                 const needsMass = massDeletion(
                   selected,
                   this.plugin.state.state.baselines[review.context] ?? {},
+                  review,
                 );
                 if (
                   needsMass &&
@@ -612,6 +657,9 @@ export class SyncReviewModal extends Modal {
             });
           }),
       );
+    // Restore only after the rows and footer have their final layout. Rebuilding
+    // the list after a selection otherwise resets its independent scroll area.
+    files.scrollTop = fileScrollTop;
   }
   /** Open the window before awaiting credentials, filesystem work or Google. */
   async loadReview(): Promise<void> {

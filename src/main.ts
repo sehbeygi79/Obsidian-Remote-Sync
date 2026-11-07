@@ -15,6 +15,8 @@ import { SyncReviewModal } from "./ui/SyncReviewModal";
 import { RemoteSyncSettings } from "./ui/SettingsTab";
 import { HistoryModal } from "./ui/HistoryModal";
 import { dismissNotifications, notify } from "./ui/Notifications";
+import { localRoot, ROOT } from "./utils/paths";
+import { IgnoreRules } from "./utils/IgnoreRules";
 export default class RemoteSyncPlugin extends Plugin {
   credentials!: CredentialStore;
   state!: SyncStateStore;
@@ -57,7 +59,7 @@ export default class RemoteSyncPlugin extends Plugin {
     this.credentials = new CredentialStore(await config.load(), (envelope) =>
       config.save(envelope),
     );
-    this.addRibbonIcon("refresh-cw", "Sync Materials", () =>
+    this.addRibbonIcon("refresh-cw", "Remote Sync", () =>
       this.run(() => this.openReview()),
     );
     this.addCommand({
@@ -181,6 +183,7 @@ export default class RemoteSyncPlugin extends Plugin {
   drive(
     accountRef = this.credentials.configuration.activeAccountId,
     folderId?: string,
+    isIgnored?: (path: string) => boolean,
   ): DriveClient {
     const c = this.credentials.account(accountRef),
       remote = this.credentials.activeRemote;
@@ -189,13 +192,74 @@ export default class RemoteSyncPlugin extends Plugin {
       this.manager(accountRef),
       folderId ?? (remote?.accountRef === accountRef ? remote.folderId : ""),
       c.accountId,
+      isIgnored,
     );
   }
   context(): string {
     if (!this.credentials.accounts.length)
       return `${this.state.state.deviceId}:unconfigured`;
     const c = this.credentials.credentials;
-    return `${this.state.state.deviceId}:${c.accountId}:${c.folderId}`;
+    const previous = `${this.state.state.deviceId}:${c.accountId}:${c.folderId}`;
+    return this.localFolder === ROOT
+      ? previous
+      : `${previous}:local:${encodeURIComponent(this.localFolder)}`;
+  }
+  get localFolder(): string {
+    return this.state.state.activeLocalFolder ?? ROOT;
+  }
+  get localFolders(): string[] {
+    return this.state.state.localFolders ?? [ROOT];
+  }
+  get privateDirectory(): string {
+    return `${this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`}/private`;
+  }
+  async saveIgnorePatterns(text: string): Promise<void> {
+    this.ensureIdle();
+    const patterns = text
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    new IgnoreRules(patterns);
+    this.state.state.ignorePatterns = patterns;
+    await this.state.save();
+    this.invalidateReviews();
+  }
+  async selectLocalFolder(folder: string): Promise<void> {
+    this.ensureIdle();
+    if (!this.localFolders.includes(folder))
+      throw new Error("Local folder is no longer configured");
+    if (folder === this.localFolder) return;
+    this.state.state.activeLocalFolder = folder;
+    await this.state.save();
+    this.invalidateReviews();
+  }
+  async addLocalFolder(path: string): Promise<void> {
+    this.ensureIdle();
+    const folder = localRoot(path.trim());
+    const guard = await desktopGuard(this.app.vault, folder);
+    new VaultBackend(this.app.vault, guard, folder, this.privateDirectory);
+    await guard(folder);
+    const stat = await this.app.vault.adapter.stat(folder);
+    if (stat && stat.type !== "folder")
+      throw new Error("The selected path is a file, not a folder");
+    if (this.localFolders.includes(folder))
+      throw new Error("This local folder is already configured");
+    this.state.state.localFolders = [...this.localFolders, folder];
+    this.state.state.activeLocalFolder = folder;
+    await this.state.save();
+    this.invalidateReviews();
+  }
+  async removeLocalFolder(folder: string): Promise<void> {
+    this.ensureIdle();
+    if (this.localFolders.length < 2)
+      throw new Error("Keep at least one local folder");
+    this.state.state.localFolders = this.localFolders.filter(
+      (item) => item !== folder,
+    );
+    if (this.localFolder === folder)
+      this.state.state.activeLocalFolder = this.localFolders[0]!;
+    await this.state.save();
+    this.invalidateReviews();
   }
   async selectRemote(id: string): Promise<void> {
     this.ensureIdle();
@@ -442,7 +506,7 @@ export default class RemoteSyncPlugin extends Plugin {
       this.clearAuth();
       this.invalidateReviews();
       notify(
-        "Remote Sync: imported and validated. Create materials/ before your first manual scan.",
+        "Remote Sync: imported and validated. Select a local folder before your first manual scan.",
         "success",
       );
     } finally {
@@ -505,7 +569,7 @@ export default class RemoteSyncPlugin extends Plugin {
       this.app,
       "Add remote",
       [{ key: "name", label: "Remote name", value: folder.name }],
-      `Google Drive folder: ${folder.name}. This remote has its own baseline and shares the local materials/ folder.`,
+      `Google Drive folder: ${folder.name}. Each local and remote folder combination has its own baseline.`,
     );
     if (!input) return;
     await this.credentials.addRemote(ref, id, folder.name, input.name!.trim());
@@ -521,15 +585,28 @@ export default class RemoteSyncPlugin extends Plugin {
       const c = this.credentials.credentials;
       const profile = { ...this.credentials.activeRemote! },
         selectionVersion = this.selectionVersion,
-        context = this.context();
+        context = this.context(),
+        localFolder = this.localFolder;
       if (!c.folderId)
         throw new Error("Select a remote folder in Remote Sync settings");
+      const ignoreRules = new IgnoreRules(this.state.state.ignorePatterns);
+      const isIgnored = (path: string) =>
+        ignoreRules.matches(
+          localFolder && path ? `${localFolder}/${path}` : localFolder || path,
+        );
       const localBackend = new VaultBackend(
           this.app.vault,
-          await desktopGuard(this.app.vault),
+          await desktopGuard(this.app.vault, localFolder),
+          localFolder,
+          this.privateDirectory,
+          isIgnored,
         ),
-        remoteBackend = this.drive(profile.accountRef, profile.folderId);
-      onStatus?.("Checking local materials…");
+        remoteBackend = this.drive(
+          profile.accountRef,
+          profile.folderId,
+          isIgnored,
+        );
+      onStatus?.("Checking local files…");
       const local = await localBackend.scan();
       onStatus?.("Checking Google Drive…");
       const remote = await remoteBackend.scan();
@@ -559,7 +636,19 @@ export default class RemoteSyncPlugin extends Plugin {
       const changes = reconcile(
         local,
         remote,
-        this.state.state.baselines[context] ?? {},
+        Object.fromEntries(
+          Object.entries(this.state.state.baselines[context] ?? {}).filter(
+            ([, baseline]) =>
+              ![
+                baseline.path,
+                baseline.local?.path,
+                baseline.remote?.path,
+              ].some((path) => path !== undefined && isIgnored(path)),
+          ),
+        ),
+      ).filter(
+        (change) =>
+          ![change.path, change.localPath, change.remotePath].some(isIgnored),
       );
       const observedAt = Date.now(),
         seen = (this.state.state.seen[context] ??= {});
@@ -596,6 +685,7 @@ export default class RemoteSyncPlugin extends Plugin {
         () =>
           selectionVersion === this.selectionVersion &&
           profile.id === this.credentials.activeRemote?.id,
+        isIgnored,
       );
       return {
         local,
@@ -604,6 +694,7 @@ export default class RemoteSyncPlugin extends Plugin {
         context,
         profileId: profile.id,
         remoteName: profile.name,
+        localFolder,
         selectionVersion,
       };
     } catch (error) {

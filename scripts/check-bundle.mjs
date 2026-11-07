@@ -46,7 +46,7 @@ const plugin = new context.module.exports.default();
 plugin.manifest = {
   id: "obsidian-remote-sync",
   name: "Remote Sync",
-  version: "1.1.0",
+  version: "1.2.0",
   dir: ".obsidian/plugins/obsidian-remote-sync",
 };
 plugin.app = {
@@ -80,7 +80,7 @@ assert(
     p.startsWith(".obsidian/plugins/obsidian-remote-sync/private"),
   ),
 );
-assert(registered.some((args) => args[1] === "Sync Materials"));
+assert(registered.some((args) => args[1] === "Remote Sync"));
 assert(registered.some((args) => args[0]?.name === "Review Status"));
 plugin.onunload();
 console.log(

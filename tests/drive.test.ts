@@ -28,7 +28,10 @@ function driveFile(name = "a.pdf", id = "id-a") {
     capabilities: { canDownload: true, canEdit: true, canTrash: true },
   };
 }
-function mock(extra?: (req: HttpRequest) => HttpResponse | undefined) {
+function mock(
+  extra?: (req: HttpRequest) => HttpResponse | undefined,
+  isIgnored?: (path: string) => boolean,
+) {
   const requests: HttpRequest[] = [];
   const http: Http = async (req) => {
     requests.push(req);
@@ -56,12 +59,55 @@ function mock(extra?: (req: HttpRequest) => HttpResponse | undefined) {
   };
   const auth = { token: vi.fn(async () => "access-secret"), lock: vi.fn() };
   return {
-    drive: new DriveClient(http, auth, "folder", "account"),
+    drive: new DriveClient(http, auth, "folder", "account", isIgnored),
     requests,
     auth,
   };
 }
 describe("Drive scanner fails closed", () => {
+  it("does not enter ignored folders or report ignored unsupported/duplicate files as blocked", async () => {
+    const { drive, requests } = mock(
+      (req) => {
+        if (new URL(req.url).pathname.endsWith("/files"))
+          return response({
+            files: [
+              driveFile(),
+              { ...driveFile("private", "folder-private"), mimeType: FOLDER },
+              {
+                ...driveFile("hidden.gdoc", "doc"),
+                mimeType: "application/vnd.google-apps.document",
+              },
+              driveFile("hidden.gdoc", "duplicate"),
+            ],
+          });
+      },
+      (path) =>
+        path === "private" ||
+        path.startsWith("private/") ||
+        path === "hidden.gdoc",
+    );
+    const scan = await drive.scan();
+    expect(Object.keys(scan.files)).toEqual(["a.pdf"]);
+    expect(scan.blocked).toEqual([]);
+    expect(scan.warnings).toEqual([]);
+    expect(
+      requests.filter((req) => new URL(req.url).pathname.endsWith("/files")),
+    ).toHaveLength(1);
+    const before = requests.length;
+    await expect(
+      drive.read(file("private/a.pdf", "original", true)),
+    ).rejects.toThrow("ignored");
+    await expect(
+      drive.upload("private/new.pdf", bytes("new"), null),
+    ).rejects.toThrow("ignored");
+    await expect(
+      drive.rename(scan.files["a.pdf"]!, "private/a.pdf"),
+    ).rejects.toThrow("ignored");
+    await expect(
+      drive.trash(file("private/a.pdf", "original", true)),
+    ).rejects.toThrow("ignored");
+    expect(requests).toHaveLength(before);
+  });
   it("resolves the root alias before validating child parents", async () => {
     const { drive } = mock((req) => {
       if (req.url.includes("/files/root?"))

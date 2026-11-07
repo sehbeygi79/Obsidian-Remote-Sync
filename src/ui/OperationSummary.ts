@@ -60,7 +60,7 @@ export function renderOperationSummary(
   const groups = parent.createDiv({ cls: "remote-sync-operation-summary" });
   for (const [direction, title, subtitle] of [
     ["uploads", "Uploads", "Changes on Google Drive"],
-    ["downloads", "Downloads", "Changes in materials/"],
+    ["downloads", "Downloads", "Changes in the local folder"],
   ] as const) {
     const counts = summary[direction];
     const group = groups.createDiv({

@@ -1,11 +1,13 @@
 import type { Credentials } from "../auth/CredentialEncryption";
 import { accountAvatar } from "./AccountIdentity";
+import { setIcon } from "obsidian";
 
 export interface PhotoOption {
   id: string;
   title: string;
   description: string;
-  account: Credentials;
+  account?: Credentials;
+  icon?: string;
 }
 /** A compact native disclosure with photo options and keyboard navigation. */
 export function photoSelector(
@@ -41,7 +43,14 @@ export function photoSelector(
   });
   const buttons: HTMLButtonElement[] = [];
   const identity = (target: HTMLElement, option: PhotoOption) => {
-    accountAvatar(target, option.account);
+    if (option.account) accountAvatar(target, option.account);
+    else {
+      const icon = target.createEl("span", {
+        cls: "remote-sync-selector-icon",
+        attr: { "aria-hidden": "true" },
+      });
+      setIcon(icon, option.icon ?? "folder");
+    }
     const text = target.createDiv({ cls: "remote-sync-selector-text" });
     text.createEl("strong", { text: option.title });
     text.createEl("span", { text: option.description });

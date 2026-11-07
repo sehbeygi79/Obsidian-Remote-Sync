@@ -140,7 +140,7 @@ export class RemoteSyncSettings extends PluginSettingTab {
     const account = section("Google account", "");
     const folders = section(
       "Remote",
-      "Only materials/ is synchronized. All synchronization starts with a manual review.",
+      "Choose one local folder and one remote for each manual sync.",
     );
     const credentialTools = section(
       "Credentials & device transfer",
@@ -284,11 +284,67 @@ export class RemoteSyncSettings extends PluginSettingTab {
       text: "LOCAL FOLDER",
       cls: "remote-sync-settings-path-label",
     });
-    local.createEl("strong", { text: "materials/" });
+    local.createEl("strong", {
+      text: this.plugin.localFolder
+        ? `${this.plugin.localFolder}/`
+        : "Entire vault (./)",
+    });
     local.createEl("p", {
       text: "Every regular file type, including subfolders.",
       cls: "remote-sync-settings-caption",
     });
+    photoSelector(
+      folders,
+      this.plugin.localFolders.map((path) => ({
+        id: path,
+        title: path ? `${path}/` : "Entire vault (./)",
+        description: "Local folder",
+        icon: path ? "folder" : "vault",
+      })),
+      this.plugin.localFolder,
+      "Local folder",
+      (path) => run(() => this.plugin.selectLocalFolder(path)),
+    );
+    new Setting(folders)
+      .setName("Local folder")
+      .setDesc("Select a saved folder. The plugin's private data is excluded.")
+      .addButton((b) =>
+        b.setButtonText("Add folder").onClick(() =>
+          run(async () => {
+            const input = await form(
+              this.app,
+              "Add local folder",
+              [
+                {
+                  key: "path",
+                  label: "Vault-relative folder path",
+                  value: "./",
+                },
+              ],
+              "Enter a vault-relative folder path, or ./ for the entire vault. Create missing folders before scanning.",
+            );
+            if (input) await this.plugin.addLocalFolder(input.path!);
+          }),
+        ),
+      )
+      .addButton((b) =>
+        b
+          .setButtonText("Remove")
+          .setDisabled(this.plugin.localFolders.length < 2)
+          .onClick(() =>
+            run(async () => {
+              const path = this.plugin.localFolder;
+              if (
+                await confirm(
+                  this.app,
+                  "Remove local folder",
+                  `Remove ${path ? `${path}/` : "the entire vault"} from the saved choices? Files and sync history are kept.`,
+                )
+              )
+                await this.plugin.removeLocalFolder(path);
+            }),
+          ),
+      );
     const remote = paths.createDiv({ cls: "remote-sync-settings-path" });
     remote.createEl("span", {
       text: "GOOGLE DRIVE",
@@ -347,7 +403,7 @@ export class RemoteSyncSettings extends PluginSettingTab {
           );
     }
     folders.createEl("p", {
-      text: "All remotes share materials/. Changes downloaded from one remote are visible to the next remote you scan. Each sync needs its own review.",
+      text: "Each local folder and remote pair has its own sync history. Changes downloaded into a shared folder are visible to other remotes.",
       cls: "remote-sync-settings-caption",
     });
     new Setting(folders)
@@ -420,18 +476,52 @@ export class RemoteSyncSettings extends PluginSettingTab {
             ),
         );
     }
-    button(folders, "Local folder", "Create if missing", async () => {
-      if (!(await this.app.vault.adapter.exists("materials"))) {
+    button(folders, "Selected local folder", "Create if missing", async () => {
+      const path = this.plugin.localFolder;
+      if (path && !(await this.app.vault.adapter.exists(path))) {
         if (
           await confirm(
             this.app,
             "Create local root",
-            "Create materials/ in this vault?",
+            `Create ${path}/ in this vault?`,
           )
         )
-          await this.app.vault.createFolder("materials");
-      } else notify("materials/ already exists");
+          await this.app.vault.createFolder(path);
+      } else notify("Local folder already exists");
     });
+    const ignore = folders.createDiv({ cls: "remote-sync-ignore-settings" });
+    ignore.createEl("h4", { text: "Ignored files and folders" });
+    ignore.createEl("p", {
+      text: "One entry per line, relative to the vault. Folders include all their contents. Use * for names, ** for nested folders, or # for comments. Applies to every local folder and remote on this device.",
+      cls: "remote-sync-settings-caption",
+    });
+    const ignoreInput = ignore.createEl("textarea", {
+      cls: "remote-sync-ignore-input",
+      attr: {
+        "aria-label": "Ignored files and folders",
+        rows: "5",
+        spellcheck: "false",
+        placeholder: ".obsidian/\nmaterials/private/\n*.tmp\n**/*.bak",
+      },
+    });
+    ignoreInput.value = (this.plugin.state.state.ignorePatterns ?? []).join(
+      "\n",
+    );
+    new Setting(ignore)
+      .setDesc(
+        "Ignored paths are omitted from scans and Review Status. Existing files and sync history are kept. Save, then scan again.",
+      )
+      .addButton((button) =>
+        button.setButtonText("Save ignore list").onClick(() =>
+          run(async () => {
+            await this.plugin.saveIgnorePatterns(ignoreInput.value);
+            notify(
+              "Remote Sync: ignore list saved. Scan again to refresh status.",
+              "success",
+            );
+          }),
+        ),
+      );
     new Setting(credentialTools)
       .setName("Move credentials between devices")
       .setDesc(

@@ -51,7 +51,10 @@ function fixture(connected = true, saved = true) {
   const plugin = {
     state,
     credentials,
-    manifest: { version: "1.1.0" },
+    localFolder: "materials",
+    localFolders: ["materials"],
+    saveIgnorePatterns: vi.fn(async (_value: string) => {}),
+    manifest: { version: "1.2.0" },
     executor: {},
     lock: vi.fn(() => {
       if (working) throw new Error("Cannot lock during a task");
@@ -105,6 +108,18 @@ const text = (element: UiElement) =>
 describe("Remote Sync settings", () => {
   beforeEach(() => {
     Modal.opened = [];
+  });
+  it("edits ignore rules without saving until the user clicks Save", async () => {
+    const f = fixture();
+    const input = f.root.all((element) => element.tag === "textarea")[0]!;
+    input.value = ".obsidian/\n*.tmp";
+    expect(f.plugin.saveIgnorePatterns).not.toHaveBeenCalled();
+    f.button("Save ignore list").listeners.click!();
+    await Promise.all(f.tasks);
+    expect(f.plugin.saveIgnorePatterns).toHaveBeenCalledWith(
+      ".obsidian/\n*.tmp",
+    );
+    expect(f.errors).toEqual([]);
   });
   it("shows account and folder cards while keeping transfer and recovery tools collapsed", () => {
     const { root, plugin } = fixture();
@@ -218,7 +233,7 @@ it("keeps token information in the account section and exposes remotes through a
   ).toHaveLength(0);
   expect(
     remote.all((el) => el.classes.has("remote-sync-photo-selector")),
-  ).toHaveLength(1);
+  ).toHaveLength(2);
   expect(
     remote.all((el) => el.classes.has("remote-sync-remote-card")),
   ).toHaveLength(0);

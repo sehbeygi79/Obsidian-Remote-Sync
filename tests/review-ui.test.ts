@@ -24,6 +24,9 @@ function fixture(loaded = true) {
   const apply = vi.fn<SyncExecutor["apply"]>(async () => []);
   let pending = Promise.resolve();
   const plugin = {
+    localFolder: "materials",
+    localFolders: ["materials", ""],
+    selectLocalFolder: vi.fn(async (_path: string) => {}),
     credentials: { unlocked: true, credentials: { folderName: "Test" } },
     state,
     context: () => "test",
@@ -81,13 +84,18 @@ describe("sync review modal", () => {
     expect(f.apply).not.toHaveBeenCalled();
   });
 
-  it("separates file selection from scan and history controls", () => {
+  it("groups filtering, selection, scan and history in one review-controls card", () => {
     const f = fixture();
     f.modal.open();
     const selection = f.content.querySelector(
       ".remote-sync-selection-controls",
     )!;
     const tools = f.content.querySelector(".remote-sync-review-tools")!;
+    const card = f.content.querySelector(".remote-sync-toolbar")!;
+    expect(card.tag).toBe("section");
+    expect(card.attributes["aria-label"]).toBe("Review controls");
+    expect(selection.parentElement).toBe(card);
+    expect(tools.parentElement).toBe(card);
     expect(selection.tag).toBe("section");
     expect(selection.querySelector("h3")!.textContent).toBe("Filter");
     expect(
@@ -96,7 +104,7 @@ describe("sync review modal", () => {
       ),
     ).toBeGreaterThan(
       f.content.children.indexOf(
-        f.content.querySelector(".remote-sync-toolbar")!,
+        f.content.querySelector(".remote-sync-review-overview")!,
       ),
     );
     expect(
@@ -106,6 +114,11 @@ describe("sync review modal", () => {
       tools.all((el) => el.tag === "button").map((el) => el.textContent),
     ).toEqual(["Scan", "History"]);
     expect(f.content.querySelector("h2")!.textContent).toBe("Review Status");
+    const overview = f.content.querySelector(".remote-sync-review-overview")!;
+    expect(overview.children).toEqual([
+      f.content.querySelector(".remote-sync-locations"),
+      f.content.querySelector(".remote-sync-toolbar"),
+    ]);
   });
 
   it("opens immediately with an indeterminate bar, then shows the completed review", async () => {
@@ -186,9 +199,9 @@ describe("sync review modal", () => {
     f.modal.open();
     const locations = f.content.querySelector(".remote-sync-locations")!;
     expect(locations.children).toHaveLength(3);
-    expect(
-      locations.all((el) => el.textContent === "Last confirmed sync"),
-    ).toHaveLength(1);
+    expect(locations.all((el) => el.textContent === "Last Sync")).toHaveLength(
+      1,
+    );
     expect(
       f.content.all((el) => /Last scan:/i.test(el.textContent)),
     ).toHaveLength(0);
@@ -209,6 +222,30 @@ describe("sync review modal", () => {
         el.textContent.includes(f.review.changes[0]!.explanation),
       ),
     ).toHaveLength(0);
+  });
+
+  it("keeps the scrolled position when selecting, deselecting and changing the selection in bulk", () => {
+    const f = fixture();
+    f.modal.open();
+    const list = () => f.content.querySelector(".remote-sync-files")!;
+    list().scrollTop = 1380;
+    const checkbox = f.checkboxes()[20]!;
+    checkbox.checked = true;
+    checkbox.listeners.change!();
+    expect(list().scrollTop).toBe(1380);
+    expect(f.checkboxes()[20]!.checked).toBe(true);
+    expect(f.status()).toBe("Selected operations: 1");
+    expect(f.button("Apply Selected").disabled).toBe(false);
+    const selected = f.checkboxes()[20]!;
+    selected.checked = false;
+    selected.listeners.change!();
+    expect(list().scrollTop).toBe(1380);
+    expect(f.status()).toBe("Selected operations: 0");
+    expect(f.button("Apply Selected").disabled).toBe(true);
+    f.button("Select All").listeners.click!();
+    expect(list().scrollTop).toBe(1380);
+    f.button("Deselect All").listeners.click!();
+    expect(list().scrollTop).toBe(1380);
   });
 
   it("keeps file selections across rerenders and clears them on deselect or refresh", async () => {
@@ -397,6 +434,28 @@ describe("sync review modal", () => {
       true,
     );
   });
+});
+
+it("switches local folders with the shared selector and clears stale selections", async () => {
+  const f = fixture();
+  f.plugin.selectLocalFolder.mockImplementation(async (path) => {
+    f.plugin.localFolder = path;
+  });
+  f.modal.open();
+  f.button("Select All").listeners.click!();
+  const trigger = f.content.all(
+    (element) => element.attributes["aria-label"] === "Local folder",
+  )[0]!;
+  expect(trigger.tag).toBe("summary");
+  const rootOption = f.content.all(
+    (element) => element.attributes["data-value"] === "",
+  )[0]!;
+  rootOption.listeners.click!();
+  await f.done();
+  expect(f.plugin.selectLocalFolder).toHaveBeenCalledWith("");
+  expect(f.plugin.scan).toHaveBeenCalledOnce();
+  expect(f.status()).toBe("Selected operations: 0");
+  expect(f.apply).not.toHaveBeenCalled();
 });
 
 it("switches remote profiles through a fresh scan and clears the previous file selection", async () => {

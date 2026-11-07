@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { VaultBackend, desktopGuard } from "../src/local/VaultBackend";
 import { hashes } from "../src/utils/hashing";
 import { bytes } from "./helpers";
-import { fromVault, relative, vaultPath } from "../src/utils/paths";
+import { fromVault, localRoot, relative, vaultPath } from "../src/utils/paths";
+import { reconcile } from "../src/sync/ReconciliationEngine";
 function tfile(path: string): TFile {
   const f = new TFile();
   f.path = path;
@@ -19,7 +20,7 @@ function fixture(indexed = true) {
       ["materials/.hidden", bytes("hidden")],
       ["Notes/outside.md", bytes("untouched")],
     ]),
-    dirs = new Set(["materials", "Notes"]);
+    dirs = new Set(["", "materials", "Notes"]);
   const adapter = {
     stat: vi.fn(async (p: string) =>
       data.has(p)
@@ -30,10 +31,15 @@ function fixture(indexed = true) {
     ),
     list: vi.fn(async (p: string) => ({
       files: [...data.keys()].filter(
-        (k) => k.startsWith(`${p}/`) && !k.slice(p.length + 1).includes("/"),
+        (k) =>
+          k.startsWith(p ? `${p}/` : "") &&
+          !k.slice(p ? p.length + 1 : 0).includes("/"),
       ),
       folders: [...dirs].filter(
-        (k) => k.startsWith(`${p}/`) && !k.slice(p.length + 1).includes("/"),
+        (k) =>
+          k !== p &&
+          k.startsWith(p ? `${p}/` : "") &&
+          !k.slice(p ? p.length + 1 : 0).includes("/"),
       ),
     })),
     exists: vi.fn(async (p: string) => data.has(p) || dirs.has(p)),
@@ -78,6 +84,127 @@ function fixture(indexed = true) {
   return { data, dirs, adapter, vault, guard, backend };
 }
 describe("materials boundary", () => {
+  it("skips ignored subtrees before reading and refuses direct operations on ignored files", async () => {
+    const f = fixture();
+    f.dirs.add("materials/private");
+    f.data.set("materials/private/secret.md", bytes("secret"));
+    f.data.set("materials/unsupported:name", bytes("ignored"));
+    const ignored = (path: string) =>
+      path === "private" ||
+      path.startsWith("private/") ||
+      path === ".hidden" ||
+      path === "unsupported:name";
+    const backend = new VaultBackend(
+      f.vault as unknown as Vault,
+      f.guard,
+      "materials",
+      undefined,
+      ignored,
+    );
+    const scan = await backend.scan();
+    expect(Object.keys(scan.files)).toEqual(["a.md"]);
+    expect(scan.blocked).toEqual([]);
+    expect(f.adapter.list.mock.calls.flat()).not.toContain("materials/private");
+    expect(f.adapter.readBinary.mock.calls.flat()).not.toContain(
+      "materials/private/secret.md",
+    );
+    await expect(backend.read("private/secret.md")).rejects.toThrow("ignored");
+    await expect(
+      backend.write("private/new.md", bytes("new"), null),
+    ).rejects.toThrow("ignored");
+    await expect(
+      backend.rename("a.md", "private/moved.md", scan.files["a.md"]!),
+    ).rejects.toThrow("ignored");
+    await expect(backend.trash(".hidden", scan.files["a.md"]!)).rejects.toThrow(
+      "ignored",
+    );
+  });
+  it("normalizes vault root and rejects unsafe folder paths", () => {
+    expect(localRoot("./")).toBe("");
+    expect(localRoot("Notes/Sub/")).toBe("Notes/Sub");
+    expect(localRoot("./my_files")).toBe("my_files");
+    expect(localRoot("./Notes/Sub/")).toBe("Notes/Sub");
+    expect(() => localRoot("../outside")).toThrow();
+    expect(() => localRoot("./../outside")).toThrow();
+    expect(() => localRoot(".//outside")).toThrow();
+    expect(() => localRoot("/absolute")).toThrow();
+  });
+  it("scans the whole vault without exposing plugin private data and blocks remote writes there", async () => {
+    const f = fixture();
+    const privateDir = ".obsidian/plugins/obsidian-remote-sync/private";
+    for (const d of [
+      ".obsidian",
+      ".obsidian/plugins",
+      ".obsidian/plugins/obsidian-remote-sync",
+      privateDir,
+    ])
+      f.dirs.add(d);
+    f.data.set(`${privateDir}/credentials.json`, bytes("private"));
+    const backend = new VaultBackend(
+      f.vault as unknown as Vault,
+      f.guard,
+      "",
+      privateDir,
+    );
+    const local = await backend.scan();
+    expect(Object.keys(local.files)).toEqual(
+      expect.arrayContaining(["materials/a.md", "Notes/outside.md"]),
+    );
+    expect(local.files[`${privateDir}/credentials.json`]).toBeUndefined();
+    expect(local.blocked).toContain(privateDir);
+    const ignoredConfig = new VaultBackend(
+      f.vault as unknown as Vault,
+      f.guard,
+      "",
+      privateDir,
+      (path) => path === ".obsidian" || path.startsWith(".obsidian/"),
+    );
+    const ignoredScan = await ignoredConfig.scan();
+    expect(ignoredScan.blocked).toEqual([]);
+    expect(
+      Object.keys(ignoredScan.files).some((path) =>
+        path.startsWith(".obsidian/"),
+      ),
+    ).toBe(false);
+    await expect(
+      backend.write(`${privateDir}/credentials.json`, bytes("overwrite"), null),
+    ).rejects.toThrow("private");
+    await expect(
+      backend.write(
+        `${privateDir.toUpperCase()}/credentials.json`,
+        bytes("overwrite"),
+        null,
+      ),
+    ).rejects.toThrow("private");
+    const remote = {
+      files: {
+        [`${privateDir}/credentials.json`]: {
+          path: `${privateDir}/credentials.json`,
+          size: 1,
+          modifiedAt: 1,
+          hashes: {},
+        },
+      },
+      blocked: [],
+      warnings: [],
+      scannedAt: 0,
+      identity: "remote",
+    };
+    expect(
+      reconcile(local, remote, {}).find((c) =>
+        c.path.endsWith("credentials.json"),
+      )?.category,
+    ).toBe("blocked");
+    expect(
+      () =>
+        new VaultBackend(
+          f.vault as unknown as Vault,
+          f.guard,
+          `${privateDir}/child`,
+          privateDir,
+        ),
+    ).toThrow("private");
+  });
   it.each([
     "../outside",
     "a/../b",

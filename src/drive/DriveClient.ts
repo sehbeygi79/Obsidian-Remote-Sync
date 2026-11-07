@@ -55,11 +55,15 @@ export interface DriveAccount {
 export class DriveClient implements RemoteBackend {
   accountInformation?: DriveAccount;
   private etags = new Map<string, string>();
+  private assertTracked(path: string): void {
+    if (this.isIgnored(path)) throw new Error("Needs Rescan: path is ignored");
+  }
   constructor(
     private http: Http,
     private auth: AuthProvider,
     public folderId: string,
     private accountId: string,
+    private isIgnored: (path: string) => boolean = () => false,
   ) {}
   async request(
     path: string,
@@ -287,12 +291,15 @@ export class DriveClient implements RemoteBackend {
       seen = new Set<string>();
     while (queue.length) {
       const current = queue.shift()!;
+      if (this.isIgnored(current.path)) continue;
       if (seen.has(current.id))
         throw new Error("Repeated Drive identity or folder cycle");
       seen.add(current.id);
       const children = await this.children(current.id),
         names = new Map<string, DriveFile[]>();
       for (const f of children) {
+        if (this.isIgnored(current.path ? `${current.path}/${f.name}` : f.name))
+          continue;
         try {
           segment(f.name);
         } catch {
@@ -340,6 +347,7 @@ export class DriveClient implements RemoteBackend {
     return snapshot;
   }
   async read(file: FileState, onProgress?: ByteProgress): Promise<ArrayBuffer> {
+    this.assertTracked(file.path);
     if (!file.id) throw new Error("Missing remote identity");
     const endpoint = `/files/${file.id}?alt=media`;
     onProgress?.(0, file.size);
@@ -448,6 +456,8 @@ export class DriveClient implements RemoteBackend {
     newId?: string,
     onProgress?: ByteProgress,
   ): Promise<void> {
+    this.assertTracked(path);
+    if (expected) this.assertTracked(expected.path);
     relative(path);
     onProgress?.(0, data.byteLength);
     const parentId = await this.destination(path, expected?.id);
@@ -524,6 +534,8 @@ export class DriveClient implements RemoteBackend {
     }
   }
   async rename(file: FileState, target: string): Promise<void> {
+    this.assertTracked(file.path);
+    this.assertTracked(target);
     relative(target);
     const parentId = await this.destination(target, file.id);
     const current = await this.check(file);
@@ -546,6 +558,7 @@ export class DriveClient implements RemoteBackend {
     ok(r);
   }
   async trash(file: FileState): Promise<void> {
+    this.assertTracked(file.path);
     // Ensure file still belongs to the configured tree before mutation.
     const current = await this.scan();
     if (

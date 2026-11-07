@@ -20,6 +20,7 @@ describe("device state recovery", () => {
     const { storage } = memory(),
       a = new SyncStateStore(storage, "s");
     a.state.baselines.ctx = { "a.pdf": baseline() };
+    a.state.ignorePatterns = [".obsidian/", "*.tmp"];
     await a.save();
     const b = new SyncStateStore(storage, "s");
     await b.load();

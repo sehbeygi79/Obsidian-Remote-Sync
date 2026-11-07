@@ -23,12 +23,21 @@ export function relative(path: string): string {
   path.split("/").forEach(segment);
   return path;
 }
-export function vaultPath(path: string): string {
-  return `${ROOT}/${relative(path)}`;
+export function localRoot(path: string): string {
+  if (path === "." || path === "./" || path === "") return "";
+  if (path.startsWith("./")) path = path.slice(2);
+  return relative(path.endsWith("/") ? path.slice(0, -1) : path);
 }
-export function fromVault(path: string): string {
-  if (!path.startsWith(`${ROOT}/`)) throw new Error("Path outside materials/");
-  return relative(path.slice(ROOT.length + 1));
+export function vaultPath(path: string, root = ROOT): string {
+  root = localRoot(root);
+  return root ? `${root}/${relative(path)}` : relative(path);
+}
+export function fromVault(path: string, root = ROOT): string {
+  root = localRoot(root);
+  if (!root) return relative(path);
+  if (!path.startsWith(`${root}/`))
+    throw new Error("Path outside local folder");
+  return relative(path.slice(root.length + 1));
 }
 export function parent(path: string): string {
   relative(path);
@@ -38,13 +47,16 @@ export function basename(path: string): string {
   return relative(path).split("/").at(-1)!;
 }
 export function affected(path: string, blocked: string[]): boolean {
-  return blocked.some(
-    (p) =>
+  path = path.normalize("NFC").toLocaleLowerCase("en-US");
+  return blocked.some((entry) => {
+    const p = entry.normalize("NFC").toLocaleLowerCase("en-US");
+    return (
       p === "" ||
       path === p ||
       path.startsWith(`${p}/`) ||
-      p.startsWith(`${path}/`),
-  );
+      p.startsWith(`${path}/`)
+    );
+  });
 }
 export function assertUniquePaths(paths: string[]): void {
   const seen = new Set<string>();

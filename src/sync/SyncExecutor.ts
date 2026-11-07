@@ -16,8 +16,14 @@ import type { SyncStateStore } from "./SyncStateStore";
 export function massDeletion(
   selected: Selection[],
   baselines: Record<string, Baseline>,
+  review?: Review,
 ): boolean {
-  const total = Object.values(baselines).filter((b) => b.hash).length;
+  const tracked = review
+    ? new Set(review.changes.map((change) => change.baseline?.key))
+    : null;
+  const total = Object.values(baselines).filter(
+    (b) => b.hash && (!tracked || tracked.has(b.key)),
+  ).length;
   const deleted = new Set(
     selected
       .filter((s) => s.action === "trash-local" || s.action === "trash-remote")
@@ -35,6 +41,7 @@ export class SyncExecutor {
     private store: SyncStateStore,
     private context: () => string,
     private reviewValid: () => boolean = () => true,
+    private isIgnored: (path: string) => boolean = () => false,
   ) {}
   cancel(): void {
     this.cancelled = true;
@@ -60,6 +67,7 @@ export class SyncExecutor {
       );
     for (const p of new Set([c.path, c.localPath, c.remotePath])) {
       relative(p);
+      if (this.isIgnored(p)) throw new Error("Needs Rescan: path is ignored");
       if (affected(p, [...current.local.blocked, ...current.remote.blocked]))
         throw new Error("Needs Rescan: path is blocked");
       if (
@@ -82,7 +90,7 @@ export class SyncExecutor {
     if (this.busy) throw new Error("Apply already in progress");
     if (!confirmed) throw new Error("Explicit operation confirmation required");
     const baseline = this.store.state.baselines[review.context] ?? {};
-    if (massDeletion(selected, baseline) && !massConfirmed)
+    if (massDeletion(selected, baseline, review) && !massConfirmed)
       throw new Error(
         "Additional confirmation required: more than 25% of synchronized files would be trashed",
       );

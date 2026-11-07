@@ -17,6 +17,7 @@ export class UiElement {
   hidden = false;
   open = false;
   max = 1;
+  scrollTop = 0;
   parentElement: UiElement | null = null;
   value = "";
   type = "";

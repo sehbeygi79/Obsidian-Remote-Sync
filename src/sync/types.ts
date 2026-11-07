@@ -60,6 +60,7 @@ export interface Change {
   suggested: Action;
 }
 export interface Review {
+  localFolder?: string;
   profileId?: string;
   remoteName?: string;
   selectionVersion?: number;
@@ -146,4 +147,7 @@ export interface DeviceState {
   observations: Observation[];
   operations: Operation[];
   journal: Operation[];
+  localFolders?: string[];
+  activeLocalFolder?: string;
+  ignorePatterns?: string[];
 }
