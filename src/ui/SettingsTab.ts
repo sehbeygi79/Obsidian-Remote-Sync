@@ -7,6 +7,10 @@ import { pageHeader } from "./PageHeader";
 import { photoSelector } from "./PhotoSelector";
 import { tokenStatus } from "./TokenStatus";
 import { syncCommits } from "./HistoryGroups";
+import {
+  concurrentTransfers,
+  MAX_CONCURRENT_TRANSFERS,
+} from "../sync/TransferSettings";
 class FolderBrowser extends Modal {
   private stack: { id: string; name: string }[] = [
     { id: "root", name: "My Drive" },
@@ -489,6 +493,40 @@ export class RemoteSyncSettings extends PluginSettingTab {
           await this.app.vault.createFolder(path);
       } else notify("Local folder already exists");
     });
+    new Setting(folders)
+      .setName("Maximum simultaneous transfers")
+      .setDesc(
+        "Combined uploads and downloads on this device. Applies to the next Apply. Higher limits use more memory; choose 1 for sequential transfers.",
+      )
+      .addDropdown((dropdown) => {
+        dropdown.selectEl.setAttribute(
+          "aria-label",
+          "Maximum simultaneous transfers",
+        );
+        for (let count = 1; count <= MAX_CONCURRENT_TRANSFERS; count++)
+          dropdown.addOption(String(count), String(count));
+        dropdown
+          .setValue(
+            String(
+              concurrentTransfers(
+                this.plugin.state.state.maxConcurrentTransfers,
+              ),
+            ),
+          )
+          .onChange((value) =>
+            run(async () => {
+              const previous = this.plugin.state.state.maxConcurrentTransfers;
+              this.plugin.state.state.maxConcurrentTransfers =
+                concurrentTransfers(Number(value));
+              try {
+                await this.plugin.state.save();
+              } catch (error) {
+                this.plugin.state.state.maxConcurrentTransfers = previous;
+                throw error;
+              }
+            }),
+          );
+      });
     const ignore = folders.createDiv({ cls: "remote-sync-ignore-settings" });
     ignore.createEl("h4", { text: "Ignored files and folders" });
     ignore.createEl("p", {

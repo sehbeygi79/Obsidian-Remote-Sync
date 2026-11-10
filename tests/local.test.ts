@@ -334,3 +334,105 @@ describe("materials boundary", () => {
     }
   });
 });
+
+it("creates shared missing parent folders only once for concurrent downloads", async () => {
+  const f = fixture();
+  f.adapter.mkdir.mockImplementation(async (path) => {
+    // Yield after the existence check to expose competing mkdir calls.
+    await Promise.resolve();
+    if (f.dirs.has(path)) throw new Error("Folder already exists");
+    f.dirs.add(path);
+  });
+  await Promise.all([
+    f.backend.write("shared/nested/a.md", bytes("a"), null),
+    f.backend.write("shared/nested/b.md", bytes("b"), null),
+  ]);
+  expect(f.adapter.mkdir.mock.calls.map(([path]) => path)).toEqual([
+    "materials/shared",
+    "materials/shared/nested",
+  ]);
+  expect(f.data.get("materials/shared/nested/a.md")).toEqual(bytes("a"));
+  expect(f.data.get("materials/shared/nested/b.md")).toEqual(bytes("b"));
+});
+
+it("scoped checks read only affected files and never traverse unrelated folders", async () => {
+  const f = fixture();
+  f.dirs.add("materials/selected");
+  f.dirs.add("materials/unrelated");
+  f.data.set("materials/selected/small.md", bytes("small"));
+  f.data.set("materials/selected/large.mkv", bytes("large"));
+  f.data.set("materials/unrelated/other.mkv", bytes("other"));
+  const result = await f.backend.scan(["selected/small.md"]);
+  expect(Object.keys(result.files)).toEqual(["selected/small.md"]);
+  expect(f.adapter.list.mock.calls.map(([path]) => path)).toEqual([
+    "materials",
+    "materials/selected",
+  ]);
+  expect(f.adapter.readBinary.mock.calls.map(([path]) => path)).toEqual([
+    "materials/selected/small.md",
+  ]);
+  f.adapter.readBinary.mockClear();
+  await f.backend.scan();
+  expect(f.adapter.readBinary.mock.calls.map(([path]) => path)).toContain(
+    "materials/unrelated/other.mkv",
+  );
+});
+
+it("scoped checks preserve missing-path checks and block unsupported ancestors", async () => {
+  const f = fixture();
+  f.dirs.add("materials/selected");
+  f.data.set("materials/selected/a.md", bytes("a"));
+  f.guard.mockImplementation(async (path) => {
+    if (path === "materials/selected") throw new Error("symlink");
+  });
+  const result = await f.backend.scan(["selected/a.md", "missing.md"]);
+  expect(result.files).toEqual({});
+  expect(result.blocked).toContain("selected");
+  expect(f.adapter.readBinary).not.toHaveBeenCalled();
+});
+
+it.each(["a.md", "folder/a.md"])(
+  "scoped checks still detect case collisions affecting %s",
+  async (target) => {
+    const f = fixture();
+    if (target === "a.md") f.data.set("materials/A.md", bytes("collision"));
+    else {
+      f.dirs.add("materials/folder");
+      f.dirs.add("materials/FOLDER");
+    }
+    await expect(f.backend.scan([target])).rejects.toThrow("collision");
+  },
+);
+
+it("scoped checks do not expose protected private files", async () => {
+  const f = fixture();
+  const privateDir = ".obsidian/plugins/obsidian-remote-sync/private";
+  f.dirs.add(".obsidian");
+  f.dirs.add(".obsidian/plugins");
+  f.dirs.add(".obsidian/plugins/obsidian-remote-sync");
+  f.dirs.add(privateDir);
+  f.data.set(`${privateDir}/state.json`, bytes("private"));
+  const backend = new VaultBackend(
+    f.vault as unknown as Vault,
+    f.guard,
+    "",
+    privateDir,
+  );
+  const result = await backend.scan([`${privateDir}/state.json`]);
+  expect(result.files).toEqual({});
+  expect(result.blocked).toContain(privateDir);
+  expect(f.adapter.readBinary).not.toHaveBeenCalled();
+});
+
+it("uses SHA-256 for modern files and computes compatibility MD5 only when requested", async () => {
+  const f = fixture();
+  const modern = await f.backend.scan(["a.md"]);
+  expect(modern.files["a.md"]!.hashes).toEqual({
+    sha256: hashes(bytes("text")).sha256,
+  });
+  const legacy = await f.backend.scan(["a.md"], { includeMd5: true });
+  expect(legacy.files["a.md"]!.hashes).toEqual(hashes(bytes("text")));
+  // An old preview with both digests still protects an overwrite correctly.
+  await f.backend.write("a.md", bytes("new"), legacy.files["a.md"]!);
+  expect(f.data.get("materials/a.md")).toEqual(bytes("new"));
+});

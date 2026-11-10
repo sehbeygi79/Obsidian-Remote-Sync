@@ -375,13 +375,15 @@ describe("sync review modal", () => {
       async (_review, selected, _confirmed, _mass, onProgress, onTransfer) => {
         const path = selected[0]!.change.path,
           total = 64 * 1024 * 1024;
-        onTransfer!({
-          path,
-          direction: "upload",
-          transferred: 16 * 1024 * 1024,
-          total,
-          phase: "transferring",
-        });
+        onTransfer!([
+          {
+            path,
+            direction: "upload",
+            transferred: 16 * 1024 * 1024,
+            total,
+            phase: "transferring",
+          },
+        ]);
         const bar = f.content.querySelector(
           ".remote-sync-file-transfer-progress",
         )!;
@@ -395,13 +397,15 @@ describe("sync review modal", () => {
             .textContent,
         ).toContain("16.00 MiB / 64.00 MiB · 25%");
         expect(f.status()).toBe("0/1 completed · 0 succeeded");
-        onTransfer!({
-          path,
-          direction: "upload",
-          transferred: total,
-          total,
-          phase: "verifying",
-        });
+        onTransfer!([
+          {
+            path,
+            direction: "upload",
+            transferred: total,
+            total,
+            phase: "verifying",
+          },
+        ]);
         expect(
           f.content.querySelector(".remote-sync-file-transfer-label")!
             .textContent,
@@ -417,7 +421,7 @@ describe("sync review modal", () => {
           status: "Success",
           before: { local: selected[0]!.change.local, remote: null },
         };
-        onTransfer!(null);
+        onTransfer!([]);
         onProgress!(op, 1, 1);
         return [op];
       },
@@ -516,4 +520,61 @@ it("switches remote profiles through a fresh scan and clears the previous file s
     .listeners.click!();
   await f.done();
   f.modal.close();
+});
+
+it("shows separate upload/download bars and removes only the completed transfer", async () => {
+  const f = fixture();
+  f.apply.mockImplementation(
+    async (_review, _selected, _confirmed, _mass, _onProgress, onTransfer) => {
+      const upload = {
+        path: "images/a.jpg",
+        direction: "upload" as const,
+        transferred: 4,
+        total: 8,
+        phase: "transferring" as const,
+      };
+      const download = {
+        path: "other/a.jpg",
+        direction: "download" as const,
+        transferred: 2,
+        total: 8,
+        phase: "transferring" as const,
+      };
+      onTransfer!([upload, download]);
+      const rows = () =>
+        f.content.all((element) =>
+          element.classes.has("remote-sync-transfer-row"),
+        );
+      expect(rows()).toHaveLength(2);
+      expect(rows()[0]!.children[0]!.textContent).toContain(
+        "Uploading · images/a.jpg",
+      );
+      expect(rows()[1]!.children[0]!.textContent).toContain(
+        "Downloading · other/a.jpg",
+      );
+      expect(rows().map((row) => row.children[1]!.value)).toEqual([4, 2]);
+      expect(f.status()).toBe("0/1 completed · 0 succeeded");
+      f.button("Cancel after active transfers").listeners.click!();
+      expect(f.plugin.executor.cancel).toHaveBeenCalledOnce();
+      onTransfer!([download]);
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0]!.children[0]!.textContent).toContain("Downloading");
+      expect(
+        f.content.querySelector(".remote-sync-file-transfer")!.hidden,
+      ).toBe(false);
+      onTransfer!([]);
+      expect(rows()).toHaveLength(0);
+      expect(
+        f.content.querySelector(".remote-sync-file-transfer")!.hidden,
+      ).toBe(true);
+      return [];
+    },
+  );
+  f.modal.open();
+  const first = f.checkboxes()[0]!;
+  first.checked = true;
+  first.listeners.change!();
+  f.button("Apply Selected").listeners.click!();
+  f.button("Confirm", Modal.opened.at(-1)!.contentEl).listeners.click!();
+  await f.done();
 });

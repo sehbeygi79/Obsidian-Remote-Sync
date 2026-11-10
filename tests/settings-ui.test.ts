@@ -54,7 +54,7 @@ function fixture(connected = true, saved = true) {
     localFolder: "materials",
     localFolders: ["materials"],
     saveIgnorePatterns: vi.fn(async (_value: string) => {}),
-    manifest: { version: "1.2.0" },
+    manifest: { version: "1.3.0" },
     executor: {},
     lock: vi.fn(() => {
       if (working) throw new Error("Cannot lock during a task");
@@ -263,4 +263,31 @@ it("browses another account's tools and token status without switching the activ
   expect(f.plugin.tokenStatus).toHaveBeenLastCalledWith("account-two");
   expect(f.plugin.run).not.toHaveBeenCalled();
   expect(f.credentials.activeRemote!.id).toBe("remote-one");
+});
+
+it("saves the simultaneous transfer limit on this device without scanning or refreshing credentials", async () => {
+  const f = fixture();
+  const dropdown = f.root.all(
+    (element) =>
+      element.attributes["aria-label"] === "Maximum simultaneous transfers",
+  )[0]!;
+  expect(dropdown.value).toBe("3");
+  expect(dropdown.children.map((option) => option.textContent)).toEqual([
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+  ]);
+  dropdown.value = "5";
+  dropdown.listeners.change!();
+  await Promise.all(f.tasks);
+  expect(f.state.state.maxConcurrentTransfers).toBe(5);
+  expect(f.save).toHaveBeenCalledOnce();
+  expect(f.plugin.drive).not.toHaveBeenCalled();
+  expect(f.plugin.manager).not.toHaveBeenCalled();
+  expect(f.errors).toEqual([]);
 });

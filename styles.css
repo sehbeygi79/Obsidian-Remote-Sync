@@ -582,6 +582,11 @@
 }
 .remote-sync-file-transfer {
   margin-top: 10px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.remote-sync-transfer-row + .remote-sync-transfer-row {
+  margin-top: 8px;
 }
 .remote-sync-file-transfer-label {
   margin-bottom: 5px;

@@ -620,3 +620,241 @@ describe("Drive identity-preserving operations", () => {
     ).toEqual({ trashed: true });
   });
 });
+
+it("creates shared Drive parents once while allowing sibling uploads to overlap", async () => {
+  let created = false,
+    creates = 0,
+    sessions = 0;
+  const pending: (() => void)[] = [];
+  const folder = {
+    id: "nested",
+    name: "shared",
+    mimeType: FOLDER,
+    ownedByMe: true,
+    parents: ["folder"],
+    capabilities: { canAddChildren: true },
+  };
+  const http: Http = async (req) => {
+    const url = new URL(req.url);
+    if (req.method === "PUT") {
+      await new Promise<void>((resolve) => pending.push(resolve));
+      return response({});
+    }
+    if (url.pathname.startsWith("/upload/")) {
+      sessions++;
+      return response({}, 200, {
+        location: `https://www.googleapis.com/session/${sessions}`,
+      });
+    }
+    if (url.pathname.endsWith("/generateIds"))
+      return response({ ids: ["nested"] });
+    if (url.pathname.endsWith("/files/folder"))
+      return response({ ...folder, id: "folder", name: "Root" });
+    if (url.pathname.endsWith("/files/nested")) return response(folder);
+    if (url.pathname.endsWith("/files") && req.method === "POST") {
+      if (created) throw new Error("Duplicate folder creation");
+      creates++;
+      created = true;
+      return response(folder);
+    }
+    if (url.pathname.endsWith("/files")) {
+      const root = url.searchParams.get("q")!.includes("'folder'");
+      return response({ files: root && created ? [folder] : [] });
+    }
+    throw new Error("Unexpected request");
+  };
+  const drive = new DriveClient(
+    http,
+    { token: async () => "token", lock: () => {} },
+    "folder",
+    "account",
+  );
+  const task = Promise.all([
+    drive.upload("shared/a.pdf", bytes("a"), null, "a"),
+    drive.upload("shared/b.pdf", bytes("b"), null, "b"),
+  ]);
+  await vi.waitFor(() => expect(pending).toHaveLength(2));
+  expect(creates).toBe(1);
+  pending.forEach((resolve) => resolve());
+  await task;
+});
+
+it("scoped Drive checks list only affected ancestors while full scans still traverse the whole tree", async () => {
+  const folder = (id: string, name: string, parent = "folder") => ({
+    id,
+    name,
+    mimeType: FOLDER,
+    ownedByMe: true,
+    parents: [parent],
+    capabilities: { canAddChildren: true },
+  });
+  const { drive, requests } = mock((req) => {
+    const url = new URL(req.url);
+    if (!url.pathname.endsWith("/files")) return;
+    const query = url.searchParams.get("q")!;
+    if (query.includes("'folder'"))
+      return response({
+        files: [
+          folder("selected", "selected"),
+          folder("unrelated", "unrelated"),
+          driveFile("large.mkv", "large"),
+        ],
+      });
+    if (query.includes("'selected'"))
+      return response({
+        files: [
+          { ...driveFile("small.md", "small"), parents: ["selected"] },
+          { ...driveFile("other.mkv", "other"), parents: ["selected"] },
+        ],
+      });
+    if (query.includes("'unrelated'"))
+      throw new Error("Unrelated folder should not be listed");
+  });
+  const result = await drive.scan(["selected/small.md"]);
+  expect(Object.keys(result.files)).toEqual(["selected/small.md"]);
+  expect(result.identity).toBe("account:folder");
+  expect(
+    requests.filter((req) => new URL(req.url).pathname.endsWith("/files")),
+  ).toHaveLength(2);
+  expect(requests.some((req) => req.url.includes("alt=media"))).toBe(false);
+  await expect(drive.scan()).rejects.toThrow("Unrelated folder");
+});
+
+it.each([false, true])(
+  "scoped Drive checks retain collisions on selected files/ancestors (ancestor=%s)",
+  async (ancestor) => {
+    const { drive } = mock((req) => {
+      if (!new URL(req.url).pathname.endsWith("/files")) return;
+      const files = [driveFile("target", "one"), driveFile("TARGET", "two")];
+      return response({
+        files: ancestor
+          ? files.map((file) => ({
+              ...file,
+              mimeType: FOLDER,
+              capabilities: { canAddChildren: true },
+            }))
+          : files,
+      });
+    });
+    const result = await drive.scan([ancestor ? "target/a.md" : "target"]);
+    expect(result.files).toEqual({});
+    expect(result.blocked).toEqual(["target", "TARGET"]);
+  },
+);
+
+it("scoped Drive checks block inaccessible ancestors and never treat incomplete listings as absence", async () => {
+  let incomplete = false;
+  const { drive } = mock((req) => {
+    if (!new URL(req.url).pathname.endsWith("/files")) return;
+    return response({
+      files: [
+        {
+          ...driveFile("selected", "selected"),
+          mimeType: FOLDER,
+          ownedByMe: false,
+        },
+      ],
+      ...(incomplete ? { incompleteSearch: true } : {}),
+    });
+  });
+  const result = await drive.scan(["selected/a.md"]);
+  expect(result.blocked).toContain("selected");
+  expect(result.files).toEqual({});
+  incomplete = true;
+  await expect(drive.scan(["selected/a.md"])).rejects.toThrow("Incomplete");
+});
+
+it("starts account, root validation and folder listings in parallel", async () => {
+  const started: string[] = [],
+    pending: (() => void)[] = [];
+  const root = {
+    id: "folder",
+    name: "Root",
+    mimeType: FOLDER,
+    ownedByMe: true,
+    capabilities: { canAddChildren: true },
+  };
+  const drive = new DriveClient(
+    async (req) => {
+      const path = new URL(req.url).pathname;
+      started.push(path);
+      await new Promise<void>((resolve) => pending.push(resolve));
+      return path.endsWith("/about")
+        ? response({
+            user: { permissionId: "account", emailAddress: "a@test" },
+          })
+        : path.endsWith("/files/folder")
+          ? response(root)
+          : response({ files: [] });
+    },
+    { token: async () => "token", lock: () => {} },
+    "folder",
+    "account",
+  );
+  const task = drive.scan(["a.md"]);
+  await vi.waitFor(() => expect(started).toHaveLength(3));
+  pending.forEach((release) => release());
+  expect((await task).files).toEqual({});
+});
+
+it("verifies the account once per Apply while retaining fresh root and path checks", async () => {
+  const { drive, requests } = mock();
+  drive.beginApply();
+  await drive.scan(["a.pdf"]);
+  await drive.scan(["a.pdf"]);
+  await drive.scan(["a.pdf"]);
+  expect(
+    requests.filter((req) => new URL(req.url).pathname.endsWith("/about")),
+  ).toHaveLength(1);
+  expect(
+    requests.filter((req) =>
+      new URL(req.url).pathname.endsWith("/files/folder"),
+    ),
+  ).toHaveLength(3);
+  expect(
+    requests.filter((req) => new URL(req.url).pathname.endsWith("/files")),
+  ).toHaveLength(3);
+  drive.endApply();
+  await drive.scan(["a.pdf"]);
+  expect(
+    requests.filter((req) => new URL(req.url).pathname.endsWith("/about")),
+  ).toHaveLength(2);
+});
+
+it("coalesces sibling checks before dispatch while keeping later versions fresh", async () => {
+  let version = "1";
+  const { drive, requests } = mock((req) =>
+    new URL(req.url).pathname.endsWith("/files")
+      ? response({ files: [{ ...driveFile(), version }] })
+      : undefined,
+  );
+  const [a, b] = await Promise.all([
+    drive.scan(["a.pdf"]),
+    drive.scan(["a.pdf"]),
+  ]);
+  expect(a.files["a.pdf"]!.version).toBe("1");
+  expect(b.files["a.pdf"]!.version).toBe("1");
+  expect(requests).toHaveLength(3);
+  version = "2";
+  expect((await drive.scan(["a.pdf"])).files["a.pdf"]!.version).toBe("2");
+  expect(requests).toHaveLength(6);
+});
+
+it("never coalesces GET requests that reserve distinct upload IDs", async () => {
+  let allocated = 0;
+  const { drive, requests } = mock((req) =>
+    new URL(req.url).pathname.endsWith("/generateIds")
+      ? response({ ids: [`reserved-${++allocated}`] })
+      : undefined,
+  );
+  expect(
+    await Promise.all([
+      drive.reserveId(),
+      drive.reserveId(),
+      drive.reserveId(),
+    ]),
+  ).toEqual(["reserved-1", "reserved-2", "reserved-3"]);
+  expect(
+    requests.filter((req) => req.url.includes("/generateIds")),
+  ).toHaveLength(3);
+});

@@ -20,7 +20,7 @@ function fixture() {
   const plugin = new RemoteSyncPlugin({} as App, {
     id: "obsidian-remote-sync",
     name: "Remote Sync",
-    version: "1.2.0",
+    version: "1.3.0",
     minAppVersion: "1.8.7",
     description: "",
     author: "",
@@ -312,4 +312,92 @@ it("uses the requested two-line Google permission text before opening consent", 
     Object.assign(Platform, { isDesktopApp: desktop });
     f.plugin.onunload();
   }
+});
+
+it("keeps first-scan equality and old baselines compatible with MD5-only Drive metadata", async () => {
+  const f = fixture();
+  await f.plugin.onload();
+  const content = new TextEncoder().encode("original").buffer;
+  const confirmed = baseline();
+  confirmed.remoteId = "id-a";
+  confirmed.remote!.id = "id-a";
+  Object.assign(f.plugin.app.vault.adapter, {
+    stat: async (path: string) =>
+      path === "materials"
+        ? { type: "folder", mtime: 1, ctime: 1, size: 0 }
+        : path === "materials/a.pdf"
+          ? { type: "file", mtime: 1000, ctime: 1, size: 8 }
+          : null,
+    list: async () => ({ files: ["materials/a.pdf"], folders: [] }),
+    readBinary: async () => content.slice(0),
+  });
+  vi.spyOn(f.plugin, "http").mockImplementation(async (req) => {
+    const value = req.url.includes("oauth2.googleapis.com")
+      ? {
+          access_token: "access",
+          expires_in: 3600,
+          scope: "https://www.googleapis.com/auth/drive",
+        }
+      : req.url.includes("/about?")
+        ? { user: { permissionId: "account", emailAddress: "user@test" } }
+        : req.url.includes("/files/folder?")
+          ? {
+              id: "folder",
+              name: "Remote",
+              mimeType: "application/vnd.google-apps.folder",
+              ownedByMe: true,
+              capabilities: { canAddChildren: true },
+            }
+          : {
+              files: [
+                {
+                  id: "id-a",
+                  name: "a.pdf",
+                  mimeType: "application/octet-stream",
+                  size: "8",
+                  modifiedTime: new Date(1000).toISOString(),
+                  md5Checksum: confirmed.hash!.md5,
+                  version: "1",
+                  parents: ["folder"],
+                  ownedByMe: true,
+                  capabilities: {
+                    canDownload: true,
+                    canEdit: true,
+                    canTrash: true,
+                  },
+                },
+              ],
+            };
+    return {
+      status: 200,
+      headers: {},
+      text: JSON.stringify(value),
+      data: new ArrayBuffer(0),
+    };
+  });
+  await f.plugin.credentials.install(
+    {
+      version: 1,
+      clientType: "desktop",
+      clientId: "desktop.apps.googleusercontent.com",
+      clientSecret: "secret",
+      refreshToken: "refresh",
+      scopes: ["https://www.googleapis.com/auth/drive"],
+      accountId: "account",
+      accountEmail: "user@test",
+      folderId: "folder",
+      folderName: "Remote",
+    },
+    "a long passphrase",
+  );
+  const first = await f.plugin.scan();
+  expect(first.changes[0]!.classification).toBe("Equal contents");
+  expect(first.local.files["a.pdf"]!.hashes.md5).toBe(confirmed.hash!.md5);
+  f.plugin.state.state.baselines[first.context] = {
+    [confirmed.key]: { ...confirmed, hash: { md5: confirmed.hash!.md5 } },
+  };
+  expect((await f.plugin.scan()).changes[0]!.classification).toBe(
+    "Synchronized",
+  );
+  f.plugin.onunload();
 });

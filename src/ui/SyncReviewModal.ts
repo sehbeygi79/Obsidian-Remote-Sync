@@ -70,10 +70,8 @@ export class SyncReviewModal extends Modal {
   private closed = false;
   private scanError: string | null = null;
   private scanStatusEl?: HTMLElement;
-  private fileTransfer: TransferProgress | null = null;
+  private fileTransfers: TransferProgress[] = [];
   private fileTransferEl?: HTMLElement;
-  private fileTransferLabelEl?: HTMLElement;
-  private fileTransferTrackEl?: HTMLProgressElement;
   constructor(
     app: App,
     private plugin: RemoteSyncPlugin,
@@ -492,20 +490,14 @@ export class SyncReviewModal extends Modal {
     this.fileTransferEl = footer.createDiv({
       cls: "remote-sync-file-transfer",
     });
-    this.fileTransferLabelEl = this.fileTransferEl.createEl("div", {
-      cls: "remote-sync-file-transfer-label",
-      attr: { role: "status", "aria-live": "polite" },
-    });
-    this.fileTransferTrackEl = this.fileTransferEl.createEl("progress", {
-      cls: "remote-sync-progress remote-sync-file-transfer-progress",
-      attr: { "aria-label": "Current file bytes transferred" },
-    });
     this.updateProgress();
     this.updateFileTransfer();
     new Setting(footer)
       .addButton((b) =>
         b
-          .setButtonText(this.applying ? "Cancel after current file" : "Close")
+          .setButtonText(
+            this.applying ? "Cancel after active transfers" : "Close",
+          )
           .onClick(() => {
             if (this.applying) this.plugin.executor?.cancel();
             else this.close();
@@ -606,7 +598,7 @@ export class SyncReviewModal extends Modal {
                     this.updateProgress();
                   },
                   (transfer) => {
-                    this.fileTransfer = transfer;
+                    this.fileTransfers = transfer;
                     this.updateFileTransfer();
                   },
                 );
@@ -651,7 +643,7 @@ export class SyncReviewModal extends Modal {
                 throw error;
               } finally {
                 this.applying = false;
-                this.fileTransfer = null;
+                this.fileTransfers = [];
                 if (!this.closed) this.render();
               }
             });
@@ -668,7 +660,7 @@ export class SyncReviewModal extends Modal {
     this.scanError = null;
     this.selectedActions.clear();
     this.batchProgress = null;
-    this.fileTransfer = null;
+    this.fileTransfers = [];
     this.render();
     try {
       // Allow the loading view to paint before any synchronous hashing begins.
@@ -734,30 +726,41 @@ export class SyncReviewModal extends Modal {
       );
   }
   private updateFileTransfer(): void {
-    const transfer = this.fileTransfer;
-    if (this.fileTransferEl) this.fileTransferEl.hidden = !transfer;
+    const container = this.fileTransferEl;
+    if (!container || this.closed) return;
+    container.hidden = this.fileTransfers.length === 0;
     if (this.progressFileEl)
-      this.progressFileEl.hidden = !!transfer || !this.batchProgress;
-    if (!transfer) return;
-    const percent = transfer.total
-      ? Math.min(100, Math.floor((transfer.transferred / transfer.total) * 100))
-      : 0;
-    const phase =
-      transfer.phase === "preparing"
-        ? "Preparing"
-        : transfer.phase === "verifying"
-          ? "Verifying"
-          : transfer.direction === "upload"
-            ? "Uploading"
-            : "Downloading";
-    if (this.fileTransferLabelEl)
-      this.fileTransferLabelEl.textContent = `${phase} · ${transfer.path.split("/").pop()} · ${size(transfer.transferred)} / ${size(transfer.total)}${transfer.phase === "transferring" && transfer.total ? ` · ${percent}%` : ""}`;
-    if (this.fileTransferTrackEl) {
-      this.fileTransferTrackEl.max = Math.max(1, transfer.total);
-      this.fileTransferTrackEl.value = Math.min(
-        transfer.transferred,
-        transfer.total,
-      );
+      this.progressFileEl.hidden =
+        this.fileTransfers.length > 0 || !this.batchProgress;
+    container.empty();
+    for (const transfer of this.fileTransfers) {
+      const row = container.createDiv({ cls: "remote-sync-transfer-row" });
+      const percent = transfer.total
+        ? Math.min(
+            100,
+            Math.floor((transfer.transferred / transfer.total) * 100),
+          )
+        : 0;
+      const phase =
+        transfer.phase === "preparing"
+          ? "Preparing"
+          : transfer.phase === "verifying"
+            ? "Verifying"
+            : transfer.direction === "upload"
+              ? "Uploading"
+              : "Downloading";
+      row.createEl("div", {
+        cls: "remote-sync-file-transfer-label",
+        text: `${phase} · ${transfer.path} · ${size(transfer.transferred)} / ${size(transfer.total)}${transfer.phase === "transferring" && transfer.total ? ` · ${percent}%` : ""}`,
+      });
+      const bar = row.createEl("progress", {
+        cls: "remote-sync-progress remote-sync-file-transfer-progress",
+        attr: {
+          "aria-label": `${transfer.direction === "upload" ? "Upload" : "Download"} bytes transferred: ${transfer.path}`,
+        },
+      });
+      bar.max = Math.max(1, transfer.total);
+      bar.value = Math.min(transfer.transferred, transfer.total);
     }
   }
   private updateProgress(): void {

@@ -29,6 +29,8 @@ export interface AuthProvider {
 export class OAuthManager implements AuthProvider {
   private access = "";
   private expires = 0;
+  private refreshing?: Promise<string>;
+  private generation = 0;
   needsReconnect = false;
   get expiresAt(): number | undefined {
     return this.access ? this.expires : undefined;
@@ -39,6 +41,8 @@ export class OAuthManager implements AuthProvider {
     private persist: () => Promise<void>,
   ) {}
   lock(): void {
+    this.generation++;
+    this.refreshing = undefined;
     this.access = "";
     this.expires = 0;
     this.needsReconnect = false;
@@ -46,6 +50,16 @@ export class OAuthManager implements AuthProvider {
   async token(force = false): Promise<string> {
     if (!force && this.access && Date.now() < this.expires - 60000)
       return this.access;
+    if (this.refreshing) return this.refreshing;
+    const pending = this.refresh(this.generation);
+    this.refreshing = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.refreshing === pending) this.refreshing = undefined;
+    }
+  }
+  private async refresh(generation: number): Promise<string> {
     const c = this.credentials();
     const response = await this.http({
       url: "https://oauth2.googleapis.com/token",
@@ -58,6 +72,8 @@ export class OAuthManager implements AuthProvider {
         grant_type: "refresh_token",
       }).toString(),
     });
+    if (generation !== this.generation)
+      throw new Error("Credentials locked during token refresh");
     if (response.status === 400 || response.status === 401) {
       this.access = "";
       this.expires = 0;
@@ -95,6 +111,8 @@ export class OAuthManager implements AuthProvider {
         throw error;
       }
     }
+    if (generation !== this.generation)
+      throw new Error("Credentials locked during token refresh");
     this.needsReconnect = false;
     this.access = t.access_token;
     this.expires = Date.now() + t.expires_in! * 1000;

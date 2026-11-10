@@ -1,4 +1,6 @@
 import { photoUrl } from "../auth/CredentialEncryption";
+import { AsyncQueue } from "../utils/AsyncQueue";
+import { ReadBatch } from "../utils/ReadBatch";
 import type { AuthProvider } from "../auth/OAuthManager";
 import { affected, basename, parent, relative, segment } from "../utils/paths";
 import { fingerprint } from "../sync/ReconciliationEngine";
@@ -55,6 +57,17 @@ export interface DriveAccount {
 export class DriveClient implements RemoteBackend {
   accountInformation?: DriveAccount;
   private etags = new Map<string, string>();
+  private folderCreation = new AsyncQueue();
+  private reads = new ReadBatch<HttpResponse>();
+  private applyAccount?: Promise<DriveAccount>;
+  beginApply(): void {
+    this.applyAccount = this.account();
+    // Individual scans await the same failure before permitting any mutation.
+    void this.applyAccount.catch(() => {});
+  }
+  endApply(): void {
+    this.applyAccount = undefined;
+  }
   private assertTracked(path: string): void {
     if (this.isIgnored(path)) throw new Error("Needs Rescan: path is ignored");
   }
@@ -71,6 +84,26 @@ export class DriveClient implements RemoteBackend {
     body?: string | ArrayBuffer,
     headers: Record<string, string> = {},
     absolute = false,
+  ): Promise<HttpResponse> {
+    // generateIds is a GET that allocates IDs: each new upload must receive a
+    // distinct reservation, so it must never share a batched request.
+    if (
+      method === "GET" &&
+      !absolute &&
+      !path.includes("alt=media") &&
+      !path.startsWith("/files/generateIds")
+    )
+      return this.reads.run(JSON.stringify([path, headers, body]), () =>
+        this.send(path, method, body, headers, absolute),
+      );
+    return this.send(path, method, body, headers, absolute);
+  }
+  private async send(
+    path: string,
+    method: string,
+    body: string | ArrayBuffer | undefined,
+    headers: Record<string, string>,
+    absolute: boolean,
   ): Promise<HttpResponse> {
     const url = absolute ? path : `${API}${path}`;
     const parsed = new URL(url);
@@ -277,9 +310,16 @@ export class DriveClient implements RemoteBackend {
       etag,
     };
   }
-  async scan(): Promise<Snapshot> {
-    await this.account();
-    await this.validateFolder();
+  async scan(targets?: readonly string[]): Promise<Snapshot> {
+    targets?.forEach(relative);
+    const [, , snapshot] = await Promise.all([
+      this.applyAccount ?? this.account(),
+      this.validateFolder(),
+      this.scanTree(targets),
+    ]);
+    return snapshot;
+  }
+  private async scanTree(targets?: readonly string[]): Promise<Snapshot> {
     const snapshot: Snapshot = {
       files: Object.create(null) as Record<string, FileState>,
       blocked: [],
@@ -327,6 +367,9 @@ export class DriveClient implements RemoteBackend {
         }
         const f = group[0]!,
           p = current.path ? `${current.path}/${f.name}` : f.name;
+        // Group names before pruning so collisions on selected paths and their
+        // ancestors remain blocked. Other folders need no recursive listing.
+        if (targets && !affected(p, targets)) continue;
         if (f.mimeType === FOLDER) {
           if (!f.ownedByMe || f.driveId || !f.capabilities?.canAddChildren) {
             snapshot.blocked.push(p);
@@ -419,8 +462,11 @@ export class DriveClient implements RemoteBackend {
   private async ensureParent(path: string): Promise<string> {
     let id = this.folderId;
     for (const part of parent(path).split("/").filter(Boolean)) {
-      await this.validateFolder(id);
-      const matches = (await this.children(id)).filter(
+      const [, children] = await Promise.all([
+        this.validateFolder(id),
+        this.children(id),
+      ]);
+      const matches = children.filter(
         (f) =>
           f.name.normalize("NFC").toLowerCase() ===
           part.normalize("NFC").toLowerCase(),
@@ -430,7 +476,27 @@ export class DriveClient implements RemoteBackend {
         matches.some((f) => f.name !== part || f.mimeType !== FOLDER)
       )
         throw new Error("Remote destination collision");
-      id = matches[0]?.id ?? (await this.createFolder(part, id)).id;
+      if (matches[0]) id = matches[0].id;
+      else {
+        const parentId = id;
+        id = await this.folderCreation.run(async () => {
+          // Only missing-folder creation is serialized. Recheck after waiting
+          // because another sibling upload may already have created this parent.
+          const siblings = (await this.children(parentId)).filter(
+            (f) =>
+              f.name.normalize("NFC").toLowerCase() ===
+              part.normalize("NFC").toLowerCase(),
+          );
+          if (
+            siblings.length > 1 ||
+            siblings.some((f) => f.name !== part || f.mimeType !== FOLDER)
+          )
+            throw new Error("Remote destination collision");
+          return (
+            siblings[0]?.id ?? (await this.createFolder(part, parentId)).id
+          );
+        });
+      }
     }
     await this.validateFolder(id);
     return id;
@@ -560,7 +626,7 @@ export class DriveClient implements RemoteBackend {
   async trash(file: FileState): Promise<void> {
     this.assertTracked(file.path);
     // Ensure file still belongs to the configured tree before mutation.
-    const current = await this.scan();
+    const current = await this.scan([file.path]);
     if (
       affected(file.path, current.blocked) ||
       fingerprint(current.files[file.path]) !== fingerprint(file)

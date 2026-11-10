@@ -46,7 +46,7 @@ const plugin = new context.module.exports.default();
 plugin.manifest = {
   id: "obsidian-remote-sync",
   name: "Remote Sync",
-  version: "1.2.0",
+  version: "1.3.0",
   dir: ".obsidian/plugins/obsidian-remote-sync",
 };
 plugin.app = {

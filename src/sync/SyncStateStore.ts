@@ -1,7 +1,11 @@
-import { checksum, randomId } from "../utils/hashing";
+import { checksumAsync, randomId } from "../utils/hashing";
 import type { DeviceState } from "./types";
 import { localRoot, ROOT } from "../utils/paths";
 import { IgnoreRules } from "../utils/IgnoreRules";
+import {
+  concurrentTransfers,
+  DEFAULT_CONCURRENT_TRANSFERS,
+} from "./TransferSettings";
 export interface PrivateStorage {
   read(path: string): Promise<string>;
   write(path: string, value: string): Promise<void>;
@@ -25,6 +29,7 @@ export function freshState(): DeviceState {
     localFolders: [ROOT],
     activeLocalFolder: ROOT,
     ignorePatterns: [],
+    maxConcurrentTransfers: DEFAULT_CONCURRENT_TRANSFERS,
   };
 }
 export class SyncStateStore {
@@ -46,7 +51,7 @@ export class SyncStateStore {
       try {
         const slot = JSON.parse(await this.storage.read(path)) as Slot;
         if (
-          checksum(slot.payload) !== slot.checksum ||
+          (await checksumAsync(slot.payload)) !== slot.checksum ||
           !Number.isSafeInteger(slot.generation) ||
           slot.generation < 1
         )
@@ -66,6 +71,9 @@ export class SyncStateStore {
         state.localFolders ??= [ROOT];
         state.activeLocalFolder ??= ROOT;
         state.ignorePatterns ??= [];
+        state.maxConcurrentTransfers = concurrentTransfers(
+          state.maxConcurrentTransfers,
+        );
         new IgnoreRules(state.ignorePatterns);
         if (
           !Array.isArray(state.localFolders) ||
@@ -116,7 +124,11 @@ export class SyncStateStore {
       if (this.failed) throw new Error("State persistence unavailable");
       const generation = this.generation + 1,
         path = `${this.prefix}.${generation % 2}.json`;
-      const slot: Slot = { generation, payload, checksum: checksum(payload) };
+      const slot: Slot = {
+        generation,
+        payload,
+        checksum: await checksumAsync(payload),
+      };
       await this.storage.write(path, JSON.stringify(slot));
       if ((await this.storage.read(path)) !== JSON.stringify(slot))
         throw new Error("State persistence verification failed");

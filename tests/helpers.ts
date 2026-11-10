@@ -8,6 +8,7 @@ import type {
   Snapshot,
 } from "../src/sync/types";
 import { SyncStateStore } from "../src/sync/SyncStateStore";
+import { affected } from "../src/utils/paths";
 export const bytes = (s: string): ArrayBuffer =>
   new TextEncoder().encode(s).buffer;
 export function file(
@@ -82,11 +83,18 @@ export class Backend implements LocalBackend, RemoteBackend {
     this.files[p] = file(p, c, this.remote, 1000 + this.next++);
     this.contents[p] = bytes(c);
   }
-  async scan(): Promise<Snapshot> {
+  async scan(
+    targets?: readonly string[],
+    _options?: { includeMd5?: boolean },
+  ): Promise<Snapshot> {
     this.beforeScan?.();
     if (this.fail === "scan") throw new Error("Network failed");
     const s = snapshot(
-      structuredClone(Object.values(this.files)),
+      structuredClone(
+        Object.values(this.files).filter(
+          (file) => !targets || affected(file.path, targets),
+        ),
+      ),
       this.identity,
     );
     s.blocked = [...this.blocked];

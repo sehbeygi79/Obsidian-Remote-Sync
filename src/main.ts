@@ -8,7 +8,11 @@ import type { Http } from "./drive/Http";
 import { desktopGuard, VaultBackend } from "./local/VaultBackend";
 import { SyncStateStore, type PrivateStorage } from "./sync/SyncStateStore";
 import { SyncExecutor } from "./sync/SyncExecutor";
-import { reconcile } from "./sync/ReconciliationEngine";
+import {
+  reconcile,
+  sameVersion,
+  legacyHashPaths,
+} from "./sync/ReconciliationEngine";
 import type { Review } from "./sync/types";
 import { confirm, downloadFile, form, pickFile } from "./ui/Dialogs";
 import { SyncReviewModal } from "./ui/SyncReviewModal";
@@ -606,10 +610,31 @@ export default class RemoteSyncPlugin extends Plugin {
           profile.folderId,
           isIgnored,
         );
-      onStatus?.("Checking local files…");
-      const local = await localBackend.scan();
-      onStatus?.("Checking Google Drive…");
-      const remote = await remoteBackend.scan();
+      // A missing local root must fail before any authentication/network work.
+      await localBackend.validateRoot();
+      onStatus?.("Checking local files and Google Drive…");
+      const [local, remote] = await Promise.all([
+        localBackend.scan(),
+        remoteBackend.scan(),
+      ]);
+      const md5Paths = legacyHashPaths(
+        local,
+        remote,
+        this.state.state.baselines[context] ?? {},
+      );
+      if (md5Paths.length) {
+        // Old MD5-only remotes/baselines need the compatibility digest for
+        // equality and portable rename matching. Modern trees avoid it entirely.
+        onStatus?.("Checking legacy content checksums…");
+        const legacy = await localBackend.scan(md5Paths, {
+          includeMd5: true,
+        });
+        for (const path of md5Paths)
+          if (!sameVersion(local.files[path], legacy.files[path]))
+            throw new Error("Local files changed during scan. Scan again.");
+        Object.assign(local.files, legacy.files);
+        local.blocked = [...new Set([...local.blocked, ...legacy.blocked])];
+      }
       if (
         context !== this.context() ||
         selectionVersion !== this.selectionVersion ||

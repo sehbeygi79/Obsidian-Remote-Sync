@@ -33,6 +33,49 @@ export function fingerprint(f: FileState | null | undefined): string {
       ])
     : "missing";
 }
+/** Compare the same version using a common verified digest, allowing SHA-only
+ * snapshots to match older records which also contain MD5. */
+export function sameVersion(
+  a: FileState | null | undefined,
+  b: FileState | null | undefined,
+): boolean {
+  if (!a || !b) return !a && !b;
+  return (
+    equal(a, b) &&
+    fingerprint({ ...a, hashes: {} }) === fingerprint({ ...b, hashes: {} })
+  );
+}
+/** Compute legacy MD5 only for files that need it for equality or rename
+ * matching. A single old remote file must not trigger MD5 for the entire vault. */
+export function legacyHashPaths(
+  local: Snapshot,
+  remote: Snapshot,
+  baselines: Record<string, Baseline>,
+): string[] {
+  const needsMd5 = (hash: FileState["hashes"] | null) =>
+    !!hash?.md5 && !hash.sha256;
+  const paths = new Set<string>();
+  for (const file of Object.values(remote.files))
+    if (needsMd5(file.hashes) && local.files[file.path]) paths.add(file.path);
+  const records = Object.values(baselines);
+  const baselinePaths = new Set(records.map((record) => record.path));
+  const byId = new Map(
+    Object.values(remote.files).map((file) => [file.id, file]),
+  );
+  for (const record of records) {
+    const source = byId.get(record.remoteId) ?? remote.files[record.path];
+    if (!needsMd5(record.hash) && !needsMd5(source?.hashes ?? null)) continue;
+    for (const file of Object.values(local.files))
+      if (
+        file.path === record.path ||
+        (!!file.localId && file.localId === record.local?.localId) ||
+        unchanged(file, record) ||
+        (needsMd5(record.hash) && !baselinePaths.has(file.path))
+      )
+        paths.add(file.path);
+  }
+  return [...paths];
+}
 export function reconcile(
   local: Snapshot,
   remote: Snapshot,

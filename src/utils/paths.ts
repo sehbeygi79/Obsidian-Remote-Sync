@@ -46,7 +46,7 @@ export function parent(path: string): string {
 export function basename(path: string): string {
   return relative(path).split("/").at(-1)!;
 }
-export function affected(path: string, blocked: string[]): boolean {
+export function affected(path: string, blocked: readonly string[]): boolean {
   path = path.normalize("NFC").toLocaleLowerCase("en-US");
   return blocked.some((entry) => {
     const p = entry.normalize("NFC").toLocaleLowerCase("en-US");

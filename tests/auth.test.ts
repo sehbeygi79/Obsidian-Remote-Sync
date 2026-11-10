@@ -272,3 +272,76 @@ describe("OAuth requests", () => {
     ).rejects.toThrow("offline");
   });
 });
+
+it("shares a single token refresh and rotation across simultaneous Drive requests", async () => {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const credentials = { ...c };
+  const http = vi.fn(async () => {
+    await wait;
+    return response({
+      access_token: "shared",
+      refresh_token: "rotated",
+      expires_in: 3600,
+    });
+  });
+  const persist = vi.fn(async () => {});
+  const manager = new OAuthManager(http, () => credentials, persist);
+  const requests = Array.from({ length: 8 }, () => manager.token());
+  expect(http).toHaveBeenCalledOnce();
+  release();
+  expect(await Promise.all(requests)).toEqual(Array(8).fill("shared"));
+  expect(credentials.refreshToken).toBe("rotated");
+  expect(persist).toHaveBeenCalledOnce();
+  expect(await manager.token()).toBe("shared");
+  expect(http).toHaveBeenCalledOnce();
+});
+
+it("discards a pending token response after credentials are locked", async () => {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const manager = new OAuthManager(
+    async () => {
+      await wait;
+      return response({ access_token: "late", expires_in: 3600 });
+    },
+    () => ({ ...c }),
+    async () => {},
+  );
+  const task = manager.token();
+  manager.lock();
+  release();
+  await expect(task).rejects.toThrow("locked");
+  expect(manager.expiresAt).toBeUndefined();
+});
+
+it("allows a manual refresh after a shared refresh fails", async () => {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let calls = 0;
+  const manager = new OAuthManager(
+    async () => {
+      if (++calls === 1) {
+        await wait;
+        return response({ error: "invalid_grant" }, 400);
+      }
+      return response({ access_token: "recovered", expires_in: 3600 });
+    },
+    () => ({ ...c }),
+    async () => {},
+  );
+  const pending = Promise.allSettled([manager.token(), manager.token()]);
+  release();
+  expect((await pending).every((item) => item.status === "rejected")).toBe(
+    true,
+  );
+  expect(calls).toBe(1);
+  expect(await manager.token()).toBe("recovered");
+  expect(calls).toBe(2);
+});

@@ -82,7 +82,11 @@ export interface TransferProgress {
   phase: "preparing" | "transferring" | "verifying";
 }
 export interface LocalBackend {
-  scan(): Promise<Snapshot>;
+  /** Without paths, scan the full tree. With paths, inspect their ancestors and affected entries only. */
+  scan(
+    paths?: readonly string[],
+    options?: { includeMd5?: boolean },
+  ): Promise<Snapshot>;
   read(path: string): Promise<ArrayBuffer>;
   write(
     path: string,
@@ -93,7 +97,10 @@ export interface LocalBackend {
   trash(path: string, expected: FileState): Promise<void>;
 }
 export interface RemoteBackend {
-  scan(): Promise<Snapshot>;
+  /** Optional account verification shared only for the lifetime of one Apply. */
+  beginApply?(): void;
+  endApply?(): void;
+  scan(paths?: readonly string[]): Promise<Snapshot>;
   read(file: FileState, onProgress?: ByteProgress): Promise<ArrayBuffer>;
   reserveId(): Promise<string>;
   upload(
@@ -150,4 +157,5 @@ export interface DeviceState {
   localFolders?: string[];
   activeLocalFolder?: string;
   ignorePatterns?: string[];
+  maxConcurrentTransfers?: number;
 }

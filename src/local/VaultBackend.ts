@@ -7,9 +7,11 @@ import {
   assertUniquePaths,
   localRoot,
   affected,
+  relative,
 } from "../utils/paths";
-import { hashes } from "../utils/hashing";
-import { fingerprint } from "../sync/ReconciliationEngine";
+import { contentHashes } from "../utils/hashing";
+import { AsyncQueue } from "../utils/AsyncQueue";
+import { sameVersion } from "../sync/ReconciliationEngine";
 import type { FileState, LocalBackend, Snapshot } from "../sync/types";
 export type PathGuard = ((vaultRelative: string) => Promise<void>) & {
   identity?: (vaultRelative: string) => Promise<string | null>;
@@ -61,6 +63,7 @@ export async function desktopGuard(
   return guard;
 }
 export class VaultBackend implements LocalBackend {
+  private directories = new AsyncQueue();
   private rootPath: string;
   private protectedPath: string | null = null;
   constructor(
@@ -97,7 +100,13 @@ export class VaultBackend implements LocalBackend {
         "Local folder is missing or inaccessible. Create it explicitly; no deletions were inferred.",
       );
   }
-  private async inspect(path: string): Promise<FileState | null> {
+  async validateRoot(): Promise<void> {
+    await this.root();
+  }
+  private async inspect(
+    path: string,
+    includeMd5 = false,
+  ): Promise<FileState | null> {
     const p = this.path(path);
     await this.guard(p);
     const before = await this.vault.adapter.stat(p);
@@ -105,6 +114,7 @@ export class VaultBackend implements LocalBackend {
     if (before.type !== "file")
       throw new Error("Destination is an unsupported object or directory");
     const data = await this.vault.adapter.readBinary(p);
+    const digest = await contentHashes(data, includeMd5);
     await this.guard(p);
     const after = await this.vault.adapter.stat(p);
     if (
@@ -119,11 +129,15 @@ export class VaultBackend implements LocalBackend {
       path,
       size: after.size,
       modifiedAt: after.mtime,
-      hashes: hashes(data),
+      hashes: digest,
       ...(localId ? { localId } : {}),
     };
   }
-  async scan(): Promise<Snapshot> {
+  async scan(
+    targets?: readonly string[],
+    options?: { includeMd5?: boolean },
+  ): Promise<Snapshot> {
+    targets?.forEach(relative);
     await this.root();
     const s: Snapshot = {
       files: Object.create(null) as Record<string, FileState>,
@@ -170,6 +184,9 @@ export class VaultBackend implements LocalBackend {
         // Match before filename portability checks so ignored unsupported names
         // cannot fail the scan or appear as blocked entries.
         if (this.isIgnored(candidate)) continue;
+        // Keep case/Unicode collisions and ancestors of each requested path,
+        // but never hash unrelated files or walk their subtrees during Apply.
+        if (targets && !affected(candidate, targets)) continue;
         const rel = fromVault(p, this.rootPath);
         paths.push(rel);
         if (
@@ -195,7 +212,7 @@ export class VaultBackend implements LocalBackend {
         if (!stat) throw new Error("Local listing changed during scan; rescan");
         if (stat.type === "folder") queue.push(p);
         else if (stat.type === "file") {
-          const f = await this.inspect(rel);
+          const f = await this.inspect(rel, options?.includeMd5);
           if (!f) throw new Error("Local file disappeared during scan");
           s.files[rel] = f;
         } else {
@@ -213,6 +230,9 @@ export class VaultBackend implements LocalBackend {
     return this.vault.adapter.readBinary(this.path(path));
   }
   private async parents(path: string): Promise<void> {
+    return this.directories.run(() => this.createParents(path));
+  }
+  private async createParents(path: string): Promise<void> {
     await this.root();
     this.path(path);
     let p = this.rootPath;
@@ -229,7 +249,15 @@ export class VaultBackend implements LocalBackend {
     path: string,
     expected: FileState | null,
   ): Promise<void> {
-    if (fingerprint(await this.inspect(path)) !== fingerprint(expected))
+    if (
+      !sameVersion(
+        await this.inspect(
+          path,
+          !!expected?.hashes.md5 && !expected.hashes.sha256,
+        ),
+        expected,
+      )
+    )
       throw new Error("Needs Rescan: local file or destination changed");
   }
   async write(

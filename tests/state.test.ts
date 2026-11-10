@@ -92,3 +92,28 @@ describe("device state recovery", () => {
     await expect(s.save()).rejects.toThrow("persistence");
   });
 });
+
+it.each([undefined, 0, -1, 9, 2.5, "4", null])(
+  "migrates missing or invalid concurrency %s without losing baselines",
+  async (value) => {
+    const { storage } = memory(),
+      a = new SyncStateStore(storage, "s");
+    a.state.baselines.ctx = { "a.pdf": baseline() };
+    Object.assign(a.state, { maxConcurrentTransfers: value });
+    await a.save();
+    const b = new SyncStateStore(storage, "s");
+    await b.load();
+    expect(b.state.maxConcurrentTransfers).toBe(3);
+    expect(b.state.baselines).toEqual(a.state.baselines);
+  },
+);
+
+it("persists a configured concurrency limit", async () => {
+  const { storage } = memory(),
+    a = new SyncStateStore(storage, "s");
+  a.state.maxConcurrentTransfers = 8;
+  await a.save();
+  const b = new SyncStateStore(storage, "s");
+  await b.load();
+  expect(b.state.maxConcurrentTransfers).toBe(8);
+});
