@@ -3,13 +3,15 @@ import type RemoteSyncPlugin from "../main";
 import type { Action, Category, Review, TransferProgress } from "../sync/types";
 import { equal } from "../sync/ReconciliationEngine";
 import { massDeletion } from "../sync/SyncExecutor";
-import { confirm } from "./Dialogs";
+import { confirm, form } from "./Dialogs";
+import { FolderBrowser } from "./FolderBrowser";
 import { HistoryModal } from "./HistoryModal";
 import { size, stamp } from "./format";
-import { notify } from "./Notifications";
+import { notify, notifySyncResult } from "./Notifications";
 import { photoSelector } from "./PhotoSelector";
 import { pageHeader } from "./PageHeader";
 import { renderOperationSummary } from "./OperationSummary";
+import { syncCommits } from "./HistoryGroups";
 const LABELS: Record<Action, string> = {
   upload: "Upload / Restore Remote",
   download: "Download / Restore Local",
@@ -62,6 +64,7 @@ export class SyncReviewModal extends Modal {
   private applying = false;
   private consumed = new Set<string>();
   private expandedFiles = new Set<string>();
+  private expandedGroups = new Set<string>();
   private batchProgress: BatchProgress | null = null;
   private progressStatusEl?: HTMLElement;
   private progressFileEl?: HTMLElement;
@@ -146,6 +149,45 @@ export class SyncReviewModal extends Modal {
         });
       },
       this.applying || this.scanning,
+      {
+        addLabel: "Add local",
+        onAdd: () =>
+          this.plugin.run(async () => {
+            const input = await form(
+              this.app,
+              "Add local folder",
+              [
+                {
+                  key: "path",
+                  label: "Vault-relative folder path",
+                  value: "./",
+                },
+              ],
+              "Enter a vault-relative folder path, or ./ for the entire vault.",
+            );
+            if (!input) return;
+            await this.plugin.addLocalFolder(input.path!);
+            this.review = undefined;
+            await this.loadReview();
+            if (!this.closed) this.render();
+          }),
+        onRemove: (path) =>
+          this.plugin.run(async () => {
+            if (
+              await confirm(
+                this.app,
+                "Remove local folder",
+                `Remove ${path ? `${path}/` : "the entire vault"} from the saved choices? Files and sync history are kept.`,
+              )
+            ) {
+              await this.plugin.removeLocalFolder(path);
+              this.review = undefined;
+              await this.loadReview();
+              if (!this.closed) this.render();
+            }
+          }),
+        canRemove: () => this.plugin.localFolders.length > 1,
+      },
     );
     const remoteField = locations.createDiv({ cls: "remote-sync-scope-field" });
     remoteField.createEl("span", {
@@ -184,12 +226,69 @@ export class SyncReviewModal extends Modal {
           });
         },
         this.applying || this.scanning,
+        {
+          addLabel: "Add remote",
+          onAdd: () =>
+            new FolderBrowser(
+              this.app,
+              this.plugin,
+              async () => {
+                this.review = undefined;
+                await this.loadReview();
+                if (!this.closed) this.render();
+              },
+              this.plugin.credentials.activeRemote?.accountRef,
+            ).open(),
+          onRename: (id) =>
+            this.plugin.run(async () => {
+              await this.plugin.renameRemote(id);
+              this.review = undefined;
+              await this.loadReview();
+              if (!this.closed) this.render();
+            }),
+          onRemove: (id) =>
+            this.plugin.run(async () => {
+              await this.plugin.removeRemote(id);
+              this.review = undefined;
+              await this.loadReview();
+              if (!this.closed) this.render();
+            }),
+        },
       );
     } else {
-      remoteField.createEl("span", {
-        text: unlocked ? "Add a remote in settings" : "Unlock to view folder",
-        cls: "remote-sync-scope-placeholder",
-      });
+      photoSelector(
+        remoteField,
+        [
+          {
+            id: "__no_remote__",
+            title: unlocked ? "No remote selected" : "Unlock to add a remote",
+            description: "Browse Google Drive folders",
+            icon: "cloud",
+          },
+        ],
+        "__no_remote__",
+        "Remote profile",
+        () => {},
+        this.applying || this.scanning,
+        {
+          addLabel: "Add remote",
+          onAdd: () =>
+            new FolderBrowser(
+              this.app,
+              this.plugin,
+              async () => {
+                this.review = undefined;
+                await this.loadReview();
+                if (!this.closed) this.render();
+              },
+              this.plugin.credentials.activeRemote?.accountRef ??
+                (unlocked
+                  ? (this.plugin.credentials.configuration.activeAccountId ??
+                    this.plugin.credentials.accounts[0]?.id)
+                  : undefined),
+            ).open(),
+        },
+      );
     }
     metadata(locations, "Last Sync", stamp(last));
     const counts = new Map<Category, number>();
@@ -317,12 +416,25 @@ export class SyncReviewModal extends Modal {
         ...review!.remote.warnings,
       ])
         warnings.createEl("p", { text: warning, cls: "remote-sync-warning" });
-      const unresolved = this.plugin.state.state.journal.filter(
-        (o) => o.context === context,
-      );
-      if (unresolved.length)
+      const latestCommit = syncCommits(
+        this.plugin.state.state.operations,
+        this.plugin.state.state.journal,
+      ).find((commit) => commit.context === context);
+      const needsReview = latestCommit
+        ? new Set([
+            ...latestCommit.unresolved,
+            ...latestCommit.operations
+              .filter((operation) =>
+                ["Running", "Failed", "Needs Rescan", "Cancelled"].includes(
+                  operation.status,
+                ),
+              )
+              .map((operation) => operation.id),
+          ]).size
+        : 0;
+      if (needsReview)
         warnings.createEl("p", {
-          text: `${unresolved.length} interrupted or failed operations need review. Inspect history and both sides; no operation is resumed automatically.`,
+          text: `${needsReview} operation${needsReview === 1 ? "" : "s"} in the latest sync need review. Inspect history and both sides; no operation is resumed automatically.`,
           cls: "remote-sync-warning",
         });
     }
@@ -352,127 +464,236 @@ export class SyncReviewModal extends Modal {
           : "Choose another filter to see other changes.",
       });
     }
-    for (const c of visible) {
-      const card = files.createDiv({ cls: "remote-sync-file" });
-      card.setAttribute("data-category", c.category);
-      const heading = card.createDiv({ cls: "remote-sync-file-heading" });
-      const checkbox = heading.createEl("input", {
-        type: "checkbox",
-        cls: "remote-sync-file-checkbox",
-        attr: { "aria-label": `Select ${c.path}` },
-      });
-      const info = heading.createDiv({ cls: "remote-sync-file-info" });
-      const name = info.createDiv({ cls: "remote-sync-file-name" });
-      name.createEl("strong", { text: c.path.split("/").pop() ?? c.path });
-      name.createEl("span", {
-        text: c.classification,
-        cls: `remote-sync-badge remote-sync-tone-${c.category}`,
-      });
-      const folder = c.path.includes("/")
-        ? c.path.slice(0, c.path.lastIndexOf("/"))
+    const groups = new Map<string, typeof visible>();
+    for (const change of visible) {
+      const folder = change.path.includes("/")
+        ? change.path.slice(0, change.path.lastIndexOf("/"))
         : "";
-      if (c.localPath !== c.remotePath)
-        info.createEl("div", {
-          text: `Local: ${c.localPath} · Remote: ${c.remotePath}`,
-          cls: "remote-sync-file-path",
-        });
-      else if (folder)
-        info.createEl("div", { text: folder, cls: "remote-sync-file-path" });
-      const setting = new Setting(
-        heading.createDiv({ cls: "remote-sync-file-actions" }),
+      const key = JSON.stringify([
+        folder,
+        change.classification,
+        change.actions,
+      ]);
+      const members = groups.get(key) ?? [];
+      members.push(change);
+      groups.set(key, members);
+    }
+    for (const [key, members] of groups) {
+      const folder = members[0]!.path.includes("/")
+        ? members[0]!.path.slice(0, members[0]!.path.lastIndexOf("/"))
+        : "";
+      const eligible = members.filter(
+        (c) => c.category !== "blocked" && !this.consumed.has(c.key),
       );
-      checkbox.checked = this.selectedActions.has(c.key);
-      checkbox.disabled =
-        this.applying || c.category === "blocked" || this.consumed.has(c.key);
-      checkbox.addEventListener("change", () => {
-        this.batchProgress = null;
-        if (checkbox.checked)
-          this.selectedActions.set(
-            c.key,
-            this.choices.get(c.key) ?? c.suggested,
-          );
-        else this.selectedActions.delete(c.key);
-        this.render();
+      const commonActions = members[0]!.actions.filter((action) =>
+        members.every((c) => c.actions.includes(action)),
+      );
+      const sharedDefault = members.every(
+        (c) => c.suggested === members[0]!.suggested,
+      )
+        ? members[0]!.suggested
+        : commonActions.includes("skip")
+          ? "skip"
+          : commonActions[0]!;
+      for (const c of eligible)
+        if (!this.choices.has(c.key)) this.choices.set(c.key, sharedDefault);
+      const group = files.createDiv({ cls: "remote-sync-group" });
+      const disclosure = group.createEl("details", {
+        cls: "remote-sync-group-disclosure",
       });
-      const risk = card.createEl("p", { cls: "remote-sync-file-risk" });
-      risk.textContent = actionWarning(this.choices.get(c.key) ?? c.suggested);
-      risk.hidden = !risk.textContent;
-      setting.addDropdown((d) => {
-        for (const action of c.actions) d.addOption(action, LABELS[action]);
-        d.setValue(this.choices.get(c.key) ?? c.suggested)
-          .setDisabled(this.applying || this.consumed.has(c.key))
-          .onChange((v) => {
-            this.choices.set(c.key, v as Action);
-            if (this.selectedActions.has(c.key))
-              this.selectedActions.set(c.key, v as Action);
-            risk.textContent = actionWarning(v as Action);
-            risk.hidden = !risk.textContent;
+      disclosure.open = this.expandedGroups.has(key);
+      disclosure.addEventListener("toggle", () => {
+        if (disclosure.open) this.expandedGroups.add(key);
+        else this.expandedGroups.delete(key);
+      });
+      disclosure.createEl("summary", {
+        text: `${folder || "Root"} · ${members[0]!.classification} · ${members.length} ${members.length === 1 ? "file" : "files"}`,
+      });
+      const controls = new Setting(
+        group.createDiv({ cls: "remote-sync-group-controls" }),
+      );
+      controls.addButton((button) =>
+        button
+          .setButtonText("Select group")
+          .setDisabled(this.applying || !eligible.length)
+          .onClick(() => {
+            this.batchProgress = null;
+            for (const c of eligible)
+              this.selectedActions.set(
+                c.key,
+                this.choices.get(c.key) ?? sharedDefault,
+              );
+            this.render();
+          }),
+      );
+      controls.addButton((button) =>
+        button
+          .setButtonText("Deselect group")
+          .setDisabled(this.applying || !eligible.length)
+          .onClick(() => {
+            this.batchProgress = null;
+            for (const c of eligible) this.selectedActions.delete(c.key);
+            this.render();
+          }),
+      );
+      controls.addDropdown((dropdown) => {
+        dropdown.selectEl.setAttribute(
+          "aria-label",
+          `Action for ${folder || "Root"} ${members[0]!.classification}`,
+        );
+        const choices = new Set(
+          eligible.map((c) => this.choices.get(c.key) ?? sharedDefault),
+        );
+        if (choices.size > 1) dropdown.addOption("mixed", "Mixed actions");
+        for (const action of commonActions)
+          dropdown.addOption(action, LABELS[action]);
+        dropdown
+          .setValue(
+            choices.size > 1 ? "mixed" : ([...choices][0] ?? sharedDefault),
+          )
+          .setDisabled(this.applying || !eligible.length)
+          .onChange((value) => {
+            if (value === "mixed") return;
+            for (const c of eligible) {
+              this.choices.set(c.key, value as Action);
+              if (this.selectedActions.has(c.key))
+                this.selectedActions.set(c.key, value as Action);
+            }
+            this.render();
           });
       });
-      const details = card.createEl("details", {
-        cls: "remote-sync-file-details",
+      const groupFiles = disclosure.createDiv({
+        cls: "remote-sync-group-files",
       });
-      details.open = this.expandedFiles.has(c.key);
-      details.addEventListener("toggle", () => {
-        if (details.open) this.expandedFiles.add(c.key);
-        else this.expandedFiles.delete(c.key);
-      });
-      details.createEl("summary", { text: "Why is this file listed?" });
-      details.createEl("p", {
-        text: c.explanation,
-      });
-      const detailMetadata = details.createDiv({
-        cls: "remote-sync-detail-metadata",
-      });
-      metadata(detailMetadata, "Suggested action", LABELS[c.suggested]);
-      metadata(
-        detailMetadata,
-        "Local",
-        `${size(c.local?.size)} · ${stamp(c.local?.modifiedAt)}`,
-      );
-      metadata(
-        detailMetadata,
-        "Remote",
-        `${size(c.remote?.size)} · ${stamp(c.remote?.modifiedAt)}`,
-      );
-      metadata(
-        detailMetadata,
-        "Last synchronized",
-        stamp(c.baseline?.syncedAt),
-      );
-      const observed = this.plugin.state.state.seen[context]?.[c.key];
-      metadata(detailMetadata, "First observed", stamp(observed?.firstSeenAt));
-      metadata(detailMetadata, "Last observed", stamp(observed?.lastSeenAt));
-      const technical = details.createEl("details", {
-        cls: "remote-sync-technical",
-      });
-      technical.createEl("summary", { text: "Hashes and technical details" });
-      technical.createEl("p", {
-        text: "Timestamps are hints. Content hashes and confirmed state determine the classification.",
-      });
-      technical.createEl("pre", {
-        text: JSON.stringify(
-          { baseline: c.baseline, local: c.local, remote: c.remote },
-          null,
-          2,
-        ),
-      });
-      new Setting(details).addButton((b) =>
-        b
-          .setButtonText("Per-file history")
-          .onClick(() =>
-            new HistoryModal(
-              this.app,
-              this.plugin.state,
-              c.path,
-              context,
-            ).open(),
-          ),
-      );
-      if (this.consumed.has(c.key))
-        card.createEl("p", {
-          text: "Reviewed. Scan again to review this path.",
+      for (const c of members) {
+        const card = groupFiles.createDiv({ cls: "remote-sync-file" });
+        card.setAttribute("data-category", c.category);
+        const heading = card.createDiv({ cls: "remote-sync-file-heading" });
+        const checkbox = heading.createEl("input", {
+          type: "checkbox",
+          cls: "remote-sync-file-checkbox",
+          attr: { "aria-label": `Select ${c.path}` },
         });
+        const info = heading.createDiv({ cls: "remote-sync-file-info" });
+        const name = info.createDiv({ cls: "remote-sync-file-name" });
+        name.createEl("strong", { text: c.path.split("/").pop() ?? c.path });
+        name.createEl("span", {
+          text: c.classification,
+          cls: `remote-sync-badge remote-sync-tone-${c.category}`,
+        });
+        const folder = c.path.includes("/")
+          ? c.path.slice(0, c.path.lastIndexOf("/"))
+          : "";
+        if (c.localPath !== c.remotePath)
+          info.createEl("div", {
+            text: `Local: ${c.localPath} · Remote: ${c.remotePath}`,
+            cls: "remote-sync-file-path",
+          });
+        else if (folder)
+          info.createEl("div", { text: folder, cls: "remote-sync-file-path" });
+        const setting = new Setting(
+          heading.createDiv({ cls: "remote-sync-file-actions" }),
+        );
+        checkbox.checked = this.selectedActions.has(c.key);
+        checkbox.disabled =
+          this.applying || c.category === "blocked" || this.consumed.has(c.key);
+        checkbox.addEventListener("change", () => {
+          this.batchProgress = null;
+          if (checkbox.checked)
+            this.selectedActions.set(
+              c.key,
+              this.choices.get(c.key) ?? c.suggested,
+            );
+          else this.selectedActions.delete(c.key);
+          this.render();
+        });
+        const risk = card.createEl("p", { cls: "remote-sync-file-risk" });
+        risk.textContent = actionWarning(
+          this.choices.get(c.key) ?? c.suggested,
+        );
+        risk.hidden = !risk.textContent;
+        setting.addDropdown((d) => {
+          for (const action of c.actions) d.addOption(action, LABELS[action]);
+          d.setValue(this.choices.get(c.key) ?? c.suggested)
+            .setDisabled(this.applying || this.consumed.has(c.key))
+            .onChange((v) => {
+              this.choices.set(c.key, v as Action);
+              if (this.selectedActions.has(c.key))
+                this.selectedActions.set(c.key, v as Action);
+              risk.textContent = actionWarning(v as Action);
+              risk.hidden = !risk.textContent;
+              this.render();
+            });
+        });
+        const details = card.createEl("details", {
+          cls: "remote-sync-file-details",
+        });
+        details.open = this.expandedFiles.has(c.key);
+        details.addEventListener("toggle", () => {
+          if (details.open) this.expandedFiles.add(c.key);
+          else this.expandedFiles.delete(c.key);
+        });
+        details.createEl("summary", { text: "Why is this file listed?" });
+        details.createEl("p", {
+          text: c.explanation,
+        });
+        const detailMetadata = details.createDiv({
+          cls: "remote-sync-detail-metadata",
+        });
+        metadata(detailMetadata, "Suggested action", LABELS[c.suggested]);
+        metadata(
+          detailMetadata,
+          "Local",
+          `${size(c.local?.size)} · ${stamp(c.local?.modifiedAt)}`,
+        );
+        metadata(
+          detailMetadata,
+          "Remote",
+          `${size(c.remote?.size)} · ${stamp(c.remote?.modifiedAt)}`,
+        );
+        metadata(
+          detailMetadata,
+          "Last synchronized",
+          stamp(c.baseline?.syncedAt),
+        );
+        const observed = this.plugin.state.state.seen[context]?.[c.key];
+        metadata(
+          detailMetadata,
+          "First observed",
+          stamp(observed?.firstSeenAt),
+        );
+        metadata(detailMetadata, "Last observed", stamp(observed?.lastSeenAt));
+        const technical = details.createEl("details", {
+          cls: "remote-sync-technical",
+        });
+        technical.createEl("summary", { text: "Hashes and technical details" });
+        technical.createEl("p", {
+          text: "Timestamps are hints. Content hashes and confirmed state determine the classification.",
+        });
+        technical.createEl("pre", {
+          text: JSON.stringify(
+            { baseline: c.baseline, local: c.local, remote: c.remote },
+            null,
+            2,
+          ),
+        });
+        new Setting(details).addButton((b) =>
+          b
+            .setButtonText("Per-file history")
+            .onClick(() =>
+              new HistoryModal(
+                this.app,
+                this.plugin.state,
+                c.path,
+                context,
+              ).open(),
+            ),
+        );
+        if (this.consumed.has(c.key))
+          card.createEl("p", {
+            text: "Reviewed. Scan again to review this path.",
+          });
+      }
     }
     const footer = el.createDiv({ cls: "remote-sync-review-footer" });
     this.progressStatusEl = footer.createEl("p", {
@@ -495,9 +716,7 @@ export class SyncReviewModal extends Modal {
     new Setting(footer)
       .addButton((b) =>
         b
-          .setButtonText(
-            this.applying ? "Cancel after active transfers" : "Close",
-          )
+          .setButtonText(this.applying ? "Cancel Transfers" : "Close")
           .onClick(() => {
             if (this.applying) this.plugin.executor?.cancel();
             else this.close();
@@ -630,7 +849,7 @@ export class SyncReviewModal extends Modal {
                   (o) => o.status === "Cancelled",
                 ).length;
                 progress.phase = progress.cancelled ? "stopped" : "complete";
-                notify(
+                notifySyncResult(
                   `${progress.success} succeeded · ${progress.failed} failed · ${progress.rescan} need rescan${progress.skipped ? ` · ${progress.skipped} skipped` : ""}${progress.cancelled ? ` · ${progress.cancelled} cancelled` : ""}. See History for details.`,
                   progress.failed
                     ? "error"

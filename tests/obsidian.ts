@@ -38,7 +38,7 @@ export class Plugin {
   manifest = {
     id: "obsidian-remote-sync",
     name: "Remote Sync",
-    version: "1.3.0",
+    version: "1.4.0",
     dir: ".obsidian/plugins/obsidian-remote-sync",
   };
   registrations: unknown[] = [];

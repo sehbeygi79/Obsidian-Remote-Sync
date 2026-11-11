@@ -116,7 +116,9 @@ export class HistoryModal extends Modal {
       }
       const list = area.createDiv({ cls: "remote-sync-commit-list" });
       for (const commit of commits) {
-        const card = list.createEl("details", { cls: "remote-sync-commit" });
+        const card = list.createEl("details", {
+          cls: "remote-sync-commit",
+        });
         const summary = card.createEl("summary", {
           cls: "remote-sync-commit-heading",
         });
@@ -127,6 +129,7 @@ export class HistoryModal extends Modal {
           cls: "remote-sync-history-caption",
         });
         const [label, tone] = outcome(commit);
+        card.addClass(`remote-sync-commit-tone-${tone}`);
         badge(summary, label, tone);
         const body = card.createDiv({ cls: "remote-sync-commit-body" });
         const counts = body.createDiv({ cls: "remote-sync-counts" });

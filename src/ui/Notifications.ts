@@ -9,6 +9,7 @@ const TITLES: Record<NotificationTone, string> = {
 };
 const notices = new Set<Notice>();
 const regions = new Set<HTMLElement>();
+let syncResultNotice: Notice | undefined;
 
 /** Persistent, explicitly dismissible notices, scoped to this plugin. */
 export function notify(
@@ -61,9 +62,23 @@ export function notify(
   return notice;
 }
 
+/** Keep only the latest sync result visible while preserving other notices. */
+export function notifySyncResult(
+  message: string,
+  tone: NotificationTone = "info",
+): Notice {
+  if (syncResultNotice) {
+    notices.delete(syncResultNotice);
+    syncResultNotice.hide();
+  }
+  syncResultNotice = notify(message, tone);
+  return syncResultNotice;
+}
+
 export function dismissNotifications(): void {
   for (const notice of notices) notice.hide();
   notices.clear();
   for (const region of regions) region.remove();
   regions.clear();
+  syncResultNotice = undefined;
 }

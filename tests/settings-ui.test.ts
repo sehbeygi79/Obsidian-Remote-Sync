@@ -54,7 +54,7 @@ function fixture(connected = true, saved = true) {
     localFolder: "materials",
     localFolders: ["materials"],
     saveIgnorePatterns: vi.fn(async (_value: string) => {}),
-    manifest: { version: "1.3.0" },
+    manifest: { version: "1.4.0" },
     executor: {},
     lock: vi.fn(() => {
       if (working) throw new Error("Cannot lock during a task");

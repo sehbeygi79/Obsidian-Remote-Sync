@@ -812,10 +812,23 @@
 }
 .remote-sync-commit {
   margin-bottom: 12px;
-  border: 1px solid var(--background-modifier-border);
+  border: 1px solid
+    var(--remote-sync-commit-tone, var(--background-modifier-border));
   border-radius: 10px;
   background: var(--background-primary);
   overflow: hidden;
+}
+.remote-sync-commit-tone-equal {
+  --remote-sync-commit-tone: var(--color-green, #4eae84);
+}
+.remote-sync-commit-tone-conflict {
+  --remote-sync-commit-tone: var(--color-red, #e36b75);
+}
+.remote-sync-commit-tone-deletion {
+  --remote-sync-commit-tone: var(--color-orange, #d69247);
+}
+.remote-sync-commit-tone-neutral {
+  --remote-sync-commit-tone: var(--text-muted);
 }
 .remote-sync-commit-heading,
 .remote-sync-history-file > summary {
@@ -1291,7 +1304,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  width: 100%;
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
   height: auto;
   margin: 0;
   padding: 12px 14px;
@@ -1301,15 +1316,91 @@
   text-align: start;
   background: transparent;
 }
+.remote-sync-selector-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.remote-sync-selector-row:hover {
+  background: var(--background-modifier-hover);
+}
+.remote-sync-selector-row:has(
+  .remote-sync-selector-option[aria-selected="true"]
+) {
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+}
+.remote-sync-selector-row:last-of-type {
+  border-bottom: 0;
+}
+.remote-sync-selector-action {
+  display: inline-flex;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 32px;
+  height: 32px;
+  margin: 0 5px 0 0;
+  padding: 0;
+  appearance: none;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  min-width: 0;
+  color: var(--text-muted);
+  background: transparent !important;
+}
+.remote-sync-selector-action:hover:not(:disabled) {
+  color: var(--text-error);
+  background: transparent !important;
+}
+.remote-sync-selector-action svg,
+.remote-sync-selector-add-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.remote-sync-selector-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.remote-sync-selector-add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-accent);
+  text-align: start;
+  background: transparent;
+}
+.remote-sync-selector-add:hover:not(:disabled) {
+  background: var(--background-modifier-hover);
+}
+.remote-sync-selector-add-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--text-accent);
+}
+.remote-sync-selector-add:disabled {
+  opacity: 0.55;
+}
 .remote-sync-selector-option .remote-sync-selector-text strong {
   white-space: normal;
   overflow-wrap: anywhere;
 }
 .remote-sync-selector-menu .remote-sync-selector-option:hover {
-  background: var(--background-modifier-hover);
+  background: transparent;
 }
 .remote-sync-selector-menu .remote-sync-selector-option[aria-selected="true"] {
-  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  background: transparent;
 }
 .remote-sync-selector-check {
   visibility: hidden;
@@ -1413,4 +1504,21 @@
   .setting-item:has(.setting-item-description:empty)
   .setting-item-info {
   flex-basis: auto;
+}
+
+.remote-sync-group {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  padding: 10px;
+}
+.remote-sync-group-disclosure > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.remote-sync-group-controls {
+  margin-top: 8px;
+}
+.remote-sync-group-files {
+  margin-top: 8px;
 }

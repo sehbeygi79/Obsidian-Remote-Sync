@@ -47,6 +47,7 @@ export class SyncExecutor {
   ) {}
   cancel(): void {
     this.cancelled = true;
+    this.remote.cancelApply?.();
   }
   private localSnapshot(
     change: Change,
@@ -232,6 +233,7 @@ export class SyncExecutor {
         const preparedRemote = prepared.get(index);
         prepared.delete(index);
         const current = await this.snapshots(c, preparedRemote);
+        if (this.cancelled) throw new Error("Operation cancelled");
         this.validate(review, c, current);
         if (c.category === "blocked")
           throw new Error("Needs Rescan: unsupported path");
@@ -252,6 +254,7 @@ export class SyncExecutor {
             phase: "preparing",
           };
           const bytes = await this.local.read(c.local.path);
+          if (this.cancelled) throw new Error("Operation cancelled");
           if (
             !equal(c.local, {
               ...c.local,
@@ -282,6 +285,7 @@ export class SyncExecutor {
                 }
               : undefined,
           );
+          if (this.cancelled) throw new Error("Operation cancelled");
           transferProgress(index, {
             ...transfer,
             transferred: bytes.byteLength,
@@ -310,6 +314,7 @@ export class SyncExecutor {
                 }
               : undefined,
           );
+          if (this.cancelled) throw new Error("Operation cancelled");
           transferProgress(index, {
             ...transfer,
             transferred: bytes.byteLength,
@@ -335,24 +340,29 @@ export class SyncExecutor {
             remote: current.remote,
           });
           if (persistenceFailed) throw persistenceError;
+          if (this.cancelled) throw new Error("Operation cancelled");
           await this.local.write(c.remote.path, bytes, c.local);
           resultingPath = c.remote.path;
         } else if (action === "trash-local") {
           if (!c.local) throw new Error("Missing local file");
+          if (this.cancelled) throw new Error("Operation cancelled");
           await this.local.trash(c.local.path, c.local);
           resultingPath = c.local.path;
         } else if (action === "trash-remote") {
           if (!c.remote) throw new Error("Missing remote file");
+          if (this.cancelled) throw new Error("Operation cancelled");
           await this.remote.trash(c.remote);
           resultingPath = c.remote.path;
         } else if (action === "local-path") {
           if (!c.local || !c.remote) throw new Error("Missing rename source");
+          if (this.cancelled) throw new Error("Operation cancelled");
           if (current.remote.files[c.local.path])
             throw new Error("Needs Rescan: remote rename destination occupied");
           await this.remote.rename(c.remote, c.local.path);
           resultingPath = c.local.path;
         } else if (action === "remote-path") {
           if (!c.local || !c.remote) throw new Error("Missing rename source");
+          if (this.cancelled) throw new Error("Operation cancelled");
           if (current.local.files[c.remote.path])
             throw new Error("Needs Rescan: local rename destination occupied");
           await this.local.rename(c.local.path, c.remote.path, c.local);
@@ -447,14 +457,19 @@ export class SyncExecutor {
       } catch (e) {
         if (persistenceFailed) throw persistenceError;
         const message = e instanceof Error ? e.message : "Operation failed";
-        op.status = message.includes("Needs Rescan")
-          ? "Needs Rescan"
-          : "Failed";
+        op.status =
+          this.cancelled || message === "Operation cancelled"
+            ? "Cancelled"
+            : message.includes("Needs Rescan")
+              ? "Needs Rescan"
+              : "Failed";
         // Persist fixed diagnostics, never raw HTTP bodies, tokens or file contents.
         op.reason =
-          op.status === "Needs Rescan"
-            ? "Reviewed source, destination or identity changed; review a fresh scan."
-            : "Operation or verification failed. Inspect both sides and rescan; no automatic retry.";
+          op.status === "Cancelled"
+            ? "Cancelled by the user. Rescan to confirm any partially completed remote transfer."
+            : op.status === "Needs Rescan"
+              ? "Reviewed source, destination or identity changed; review a fresh scan."
+              : "Operation or verification failed. Inspect both sides and rescan; no automatic retry.";
         op.finishedAt = Date.now();
         await persist(() => {
           this.store.state.operations.push(op);

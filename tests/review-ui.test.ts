@@ -554,7 +554,7 @@ it("shows separate upload/download bars and removes only the completed transfer"
       );
       expect(rows().map((row) => row.children[1]!.value)).toEqual([4, 2]);
       expect(f.status()).toBe("0/1 completed · 0 succeeded");
-      f.button("Cancel after active transfers").listeners.click!();
+      f.button("Cancel Transfers").listeners.click!();
       expect(f.plugin.executor.cancel).toHaveBeenCalledOnce();
       onTransfer!([download]);
       expect(rows()).toHaveLength(1);
@@ -577,4 +577,61 @@ it("shows separate upload/download bars and removes only the completed transfer"
   f.button("Apply Selected").listeners.click!();
   f.button("Confirm", Modal.opened.at(-1)!.contentEl).listeners.click!();
   await f.done();
+});
+
+it("groups sibling changes by folder and classification, with group and individual actions", () => {
+  const f = fixture();
+  const local = snapshot([file("f1/a"), file("f1/b"), file("root-local")]);
+  const remote = snapshot([
+    file("f1/c", "original", true),
+    file("f1/d", "original", true),
+    file("root-remote", "original", true),
+  ]);
+  f.review.local = local;
+  f.review.remote = remote;
+  f.review.changes = reconcile(local, remote, {});
+  f.modal.open();
+  const groups = () =>
+    f.content.all((el) => el.classes.has("remote-sync-group"));
+  expect(groups()).toHaveLength(4);
+  const localGroup = () =>
+    groups().find((group) =>
+      group
+        .querySelector("summary")!
+        .textContent.includes("f1 · Local addition"),
+    )!;
+  const remoteGroup = groups().find((group) =>
+    group
+      .querySelector("summary")!
+      .textContent.includes("f1 · Remote addition"),
+  )!;
+  expect(localGroup().querySelector("summary")!.textContent).toContain(
+    "2 files",
+  );
+  expect(remoteGroup.querySelector("summary")!.textContent).toContain(
+    "2 files",
+  );
+  expect(localGroup().querySelector("details")!.open).toBe(false);
+  localGroup().all((el) => el.textContent === "Select group")[0]!.listeners
+    .click!();
+  expect(f.status()).toBe("Selected operations: 2");
+  const groupPicker = () =>
+    localGroup().all(
+      (el) => el.attributes["aria-label"] === "Action for f1 Local addition",
+    )[0]!;
+  const picker = groupPicker();
+  picker.value = "skip";
+  picker.listeners.change!();
+  expect(
+    localGroup()
+      .all((el) => el.classes.has("remote-sync-file"))
+      .map((el) => el.querySelector("select")!.value),
+  ).toEqual(["skip", "skip"]);
+  const individual = localGroup()
+    .all((el) => el.classes.has("remote-sync-file"))[0]!
+    .querySelector("select")!;
+  individual.value = "upload";
+  individual.listeners.change!();
+  expect(groupPicker().value).toBe("mixed");
+  expect(f.status()).toBe("Selected operations: 2");
 });

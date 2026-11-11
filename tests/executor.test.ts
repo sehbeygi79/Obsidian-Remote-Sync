@@ -590,7 +590,7 @@ describe("concurrent transfers", () => {
   });
 
   it.each([1, 3, 8])(
-    "honors limit %s and cancels queued work while waiting for active transfers",
+    "cancels queued and active transfers while waiting for the concurrency limit",
     async (limit) => {
       const s = await setup(
         Object.fromEntries(
@@ -618,14 +618,10 @@ describe("concurrent transfers", () => {
       wait.release();
       const result = await task;
       expect(started).toHaveLength(limit);
-      expect(result.filter((op) => op.status === "Success")).toHaveLength(
-        limit,
-      );
-      expect(result.filter((op) => op.status === "Cancelled")).toHaveLength(
-        10 - limit,
-      );
-      expect(Object.keys(s.store.state.baselines.ctx!)).toHaveLength(limit);
-      expect(s.store.state.journal).toEqual([]);
+      expect(result.every((op) => op.status === "Cancelled")).toBe(true);
+      expect(result.filter((op) => op.status === "Cancelled")).toHaveLength(10);
+      expect(Object.keys(s.store.state.baselines.ctx ?? {})).toHaveLength(0);
+      expect(s.store.state.journal).toHaveLength(limit);
       expect(s.executor.busy).toBe(false);
     },
   );
@@ -659,7 +655,7 @@ describe("concurrent transfers", () => {
 
   it("preserves earlier commits on persistence failure and drains active transfers before releasing busy", async () => {
     const s = await setup({ a: "a", b: "b", c: "c", d: "d" }, {});
-    s.store.state.maxConcurrentTransfers = 3;
+    s.store.state.maxConcurrentTransfers = 2;
     const waits = new Map<string, ReturnType<typeof gate>>();
     const upload = s.remote.upload.bind(s.remote);
     s.remote.upload = async (...args) => {
@@ -686,19 +682,18 @@ describe("concurrent transfers", () => {
       s.review.changes.map((change) => ({ change, action: "upload" })),
       true,
       false,
-      (op) => {
-        if (op.path === "a") s.executor.cancel();
-      },
+      () => {},
     );
     const outcome = task.then(
       () => null,
       (error: Error) => error,
     );
-    await vi.waitFor(() => expect(waits.size).toBe(3));
+    await vi.waitFor(() => expect(waits.size).toBe(2));
     waits.get("a")!.release();
     await vi.waitFor(() =>
       expect(s.store.state.operations.some((op) => op.path === "a")).toBe(true),
     );
+    await vi.waitFor(() => expect(waits.has("c")).toBe(true));
     waits.get("b")!.release();
     await vi.waitFor(() => expect(failedSave).toBe(true));
     expect(s.executor.busy).toBe(true);
@@ -963,7 +958,7 @@ it("bounds metadata preparation and keeps cancelled queued failures out of opera
   s.executor.cancel();
   wait.release();
   expect((await task).map((op) => op.status)).toEqual([
-    "Success",
+    "Cancelled",
     "Cancelled",
     "Cancelled",
     "Cancelled",

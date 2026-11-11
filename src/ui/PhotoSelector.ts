@@ -9,6 +9,13 @@ export interface PhotoOption {
   account?: Credentials;
   icon?: string;
 }
+export interface PhotoSelectorActions {
+  onAdd?: () => void;
+  addLabel?: string;
+  onRemove?: (id: string) => void;
+  canRemove?: (id: string) => boolean;
+  onRename?: (id: string) => void;
+}
 /** A compact native disclosure with photo options and keyboard navigation. */
 export function photoSelector(
   parent: HTMLElement,
@@ -17,6 +24,7 @@ export function photoSelector(
   label: string,
   onSelect: (id: string) => void,
   disabled = false,
+  actions: PhotoSelectorActions = {},
 ): { setValue: (id: string) => void } {
   const root = parent.createEl("details", {
     cls: "remote-sync-photo-selector",
@@ -55,6 +63,30 @@ export function photoSelector(
     text.createEl("strong", { text: option.title });
     text.createEl("span", { text: option.description });
   };
+  const iconButton = (
+    parent: HTMLElement,
+    icon: string,
+    title: string,
+    onClick: (event: MouseEvent) => void,
+    disabledAction = false,
+  ) => {
+    const button = parent.createEl("button", {
+      cls: "remote-sync-selector-action",
+      attr: {
+        type: "button",
+        "aria-label": title,
+        title,
+      },
+    });
+    setIcon(button, icon);
+    button.disabled = disabled || disabledAction;
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!button.disabled) onClick(event);
+    });
+    return button;
+  };
   const close = () => {
     root.open = false;
     trigger.setAttribute("aria-expanded", "false");
@@ -79,7 +111,8 @@ export function photoSelector(
     );
   };
   for (const [index, option] of options.entries()) {
-    const button = menu.createEl("button", {
+    const row = menu.createDiv({ cls: "remote-sync-selector-row" });
+    const button = row.createEl("button", {
       cls: "remote-sync-selector-option",
       attr: { type: "button", role: "option", "data-value": option.id },
     });
@@ -117,6 +150,35 @@ export function photoSelector(
       }
     });
     buttons.push(button);
+    if (actions.onRename)
+      iconButton(row, "pencil", `Rename ${option.title}`, () =>
+        actions.onRename?.(option.id),
+      );
+    if (actions.onRemove)
+      iconButton(
+        row,
+        "trash-2",
+        `Remove ${option.title}`,
+        () => actions.onRemove?.(option.id),
+        actions.canRemove ? !actions.canRemove(option.id) : false,
+      );
+  }
+  if (actions.onAdd) {
+    const add = menu.createEl("button", {
+      cls: "remote-sync-selector-add",
+      attr: { type: "button" },
+    });
+    const icon = add.createEl("span", { cls: "remote-sync-selector-add-icon" });
+    setIcon(icon, "plus");
+    add.createEl("span", { text: actions.addLabel ?? "Add" });
+    add.disabled = disabled;
+    add.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (disabled) return;
+      close();
+      actions.onAdd?.();
+    });
   }
   trigger.addEventListener("click", (event) => {
     if (disabled) event.preventDefault();

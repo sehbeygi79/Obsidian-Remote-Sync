@@ -99,6 +99,7 @@ export interface LocalBackend {
 export interface RemoteBackend {
   /** Optional account verification shared only for the lifetime of one Apply. */
   beginApply?(): void;
+  cancelApply?(): void;
   endApply?(): void;
   scan(paths?: readonly string[]): Promise<Snapshot>;
   read(file: FileState, onProgress?: ByteProgress): Promise<ArrayBuffer>;

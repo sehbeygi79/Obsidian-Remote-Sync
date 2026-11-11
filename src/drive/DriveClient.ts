@@ -60,13 +60,19 @@ export class DriveClient implements RemoteBackend {
   private folderCreation = new AsyncQueue();
   private reads = new ReadBatch<HttpResponse>();
   private applyAccount?: Promise<DriveAccount>;
+  private applyCancelled = false;
   beginApply(): void {
+    this.applyCancelled = false;
     this.applyAccount = this.account();
     // Individual scans await the same failure before permitting any mutation.
     void this.applyAccount.catch(() => {});
   }
   endApply(): void {
     this.applyAccount = undefined;
+    this.applyCancelled = false;
+  }
+  cancelApply(): void {
+    this.applyCancelled = true;
   }
   private assertTracked(path: string): void {
     if (this.isIgnored(path)) throw new Error("Needs Rescan: path is ignored");
@@ -85,6 +91,7 @@ export class DriveClient implements RemoteBackend {
     headers: Record<string, string> = {},
     absolute = false,
   ): Promise<HttpResponse> {
+    this.assertApplyActive();
     // generateIds is a GET that allocates IDs: each new upload must receive a
     // distinct reservation, so it must never share a batched request.
     if (
@@ -93,10 +100,18 @@ export class DriveClient implements RemoteBackend {
       !path.includes("alt=media") &&
       !path.startsWith("/files/generateIds")
     )
-      return this.reads.run(JSON.stringify([path, headers, body]), () =>
-        this.send(path, method, body, headers, absolute),
-      );
-    return this.send(path, method, body, headers, absolute);
+      return this.reads.run(JSON.stringify([path, headers, body]), async () => {
+        this.assertApplyActive();
+        const response = await this.send(path, method, body, headers, absolute);
+        this.assertApplyActive();
+        return response;
+      });
+    const response = await this.send(path, method, body, headers, absolute);
+    this.assertApplyActive();
+    return response;
+  }
+  private assertApplyActive(): void {
+    if (this.applyCancelled) throw new Error("Operation cancelled");
   }
   private async send(
     path: string,

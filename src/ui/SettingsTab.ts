@@ -1,6 +1,7 @@
-import { App, Modal, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting } from "obsidian";
 import type RemoteSyncPlugin from "../main";
 import { confirm, downloadFile, form } from "./Dialogs";
+import { FolderBrowser } from "./FolderBrowser";
 import { HistoryModal } from "./HistoryModal";
 import { notify } from "./Notifications";
 import { pageHeader } from "./PageHeader";
@@ -11,96 +12,6 @@ import {
   concurrentTransfers,
   MAX_CONCURRENT_TRANSFERS,
 } from "../sync/TransferSettings";
-class FolderBrowser extends Modal {
-  private stack: { id: string; name: string }[] = [
-    { id: "root", name: "My Drive" },
-  ];
-  constructor(
-    app: App,
-    private plugin: RemoteSyncPlugin,
-    private refresh: () => void,
-    private accountRef?: string,
-  ) {
-    super(app);
-  }
-  onOpen(): void {
-    this.plugin.run(async () => {
-      await this.plugin.unlock();
-      await this.render();
-    });
-  }
-  private async render(): Promise<void> {
-    const current = this.stack.at(-1)!;
-    this.contentEl.empty();
-    pageHeader(this.contentEl, "Select remote folder");
-    this.contentEl.createEl("p", {
-      text: this.stack.map((f) => f.name).join(" / "),
-    });
-    const folders = await this.plugin
-      .drive(this.accountRef)
-      .folders(current.id);
-    const nav = new Setting(this.contentEl);
-    if (this.stack.length > 1)
-      nav.addButton((b) =>
-        b.setButtonText("Up").onClick(() =>
-          this.plugin.run(async () => {
-            this.stack.pop();
-            await this.render();
-          }),
-        ),
-      );
-    if (current.id !== "root")
-      nav.addButton((b) =>
-        b
-          .setButtonText("Use this folder")
-          .setCta()
-          .onClick(() =>
-            this.plugin.run(async () => {
-              await this.plugin.chooseFolder(current.id, this.accountRef);
-              this.refresh();
-              this.close();
-            }),
-          ),
-      );
-    nav.addButton((b) =>
-      b.setButtonText("Create folder here").onClick(() =>
-        this.plugin.run(async () => {
-          const input = await form(this.app, "Create Drive folder", [
-            { key: "name", label: "Folder name" },
-          ]);
-          if (!input) return;
-          if (
-            !(await confirm(
-              this.app,
-              "Create folder",
-              `Create ${input.name} in ${current.name}?`,
-            ))
-          )
-            return;
-          const folder = await this.plugin
-            .drive(this.accountRef)
-            .createFolder(input.name!, current.id);
-          this.stack.push(folder);
-          await this.render();
-        }),
-      ),
-    );
-    for (const folder of folders)
-      new Setting(this.contentEl)
-        .setName(folder.name)
-        .setDesc(folder.id)
-        .addButton((b) =>
-          b.setButtonText("Open").onClick(() =>
-            this.plugin.run(async () => {
-              this.stack.push(folder);
-              await this.render();
-            }),
-          ),
-        );
-    if (!folders.length)
-      this.contentEl.createEl("p", { text: "No owned subfolders." });
-  }
-}
 export class RemoteSyncSettings extends PluginSettingTab {
   private countdownTimer?: number;
   private viewedAccountRef?: string;
@@ -308,12 +219,10 @@ export class RemoteSyncSettings extends PluginSettingTab {
       this.plugin.localFolder,
       "Local folder",
       (path) => run(() => this.plugin.selectLocalFolder(path)),
-    );
-    new Setting(folders)
-      .setName("Local folder")
-      .setDesc("Select a saved folder. The plugin's private data is excluded.")
-      .addButton((b) =>
-        b.setButtonText("Add folder").onClick(() =>
+      false,
+      {
+        addLabel: "Add local",
+        onAdd: () =>
           run(async () => {
             const input = await form(
               this.app,
@@ -325,30 +234,24 @@ export class RemoteSyncSettings extends PluginSettingTab {
                   value: "./",
                 },
               ],
-              "Enter a vault-relative folder path, or ./ for the entire vault. Create missing folders before scanning.",
+              "Enter a vault-relative folder path, or ./ for the entire vault.",
             );
             if (input) await this.plugin.addLocalFolder(input.path!);
           }),
-        ),
-      )
-      .addButton((b) =>
-        b
-          .setButtonText("Remove")
-          .setDisabled(this.plugin.localFolders.length < 2)
-          .onClick(() =>
-            run(async () => {
-              const path = this.plugin.localFolder;
-              if (
-                await confirm(
-                  this.app,
-                  "Remove local folder",
-                  `Remove ${path ? `${path}/` : "the entire vault"} from the saved choices? Files and sync history are kept.`,
-                )
+        onRemove: (path) =>
+          run(async () => {
+            if (
+              await confirm(
+                this.app,
+                "Remove local folder",
+                `Remove ${path ? `${path}/` : "the entire vault"} from the saved choices? Files and sync history are kept.`,
               )
-                await this.plugin.removeLocalFolder(path);
-            }),
-          ),
-      );
+            )
+              await this.plugin.removeLocalFolder(path);
+          }),
+        canRemove: () => this.plugin.localFolders.length > 1,
+      },
+    );
     const remote = paths.createDiv({ cls: "remote-sync-settings-path" });
     remote.createEl("span", {
       text: "GOOGLE DRIVE",
@@ -383,67 +286,51 @@ export class RemoteSyncSettings extends PluginSettingTab {
               this.plugin.credentials.activeRemote?.accountRef;
           });
         },
-      );
-      const profile = credentials.activeRemote;
-      if (profile)
-        new Setting(folders)
-          .setName("Remote actions")
-          .addButton((b) =>
-            b
-              .setButtonText("Rename")
-              .onClick(() => run(() => this.plugin.renameRemote(profile.id))),
-          )
-          .addButton((b) =>
-            b
-              .setButtonText("Export")
-              .onClick(() =>
-                run(() => this.plugin.exportCredentials(profile.id)),
-              ),
-          )
-          .addButton((b) =>
-            b
-              .setButtonText("Remove")
-              .onClick(() => run(() => this.plugin.removeRemote(profile.id))),
-          );
-    }
-    folders.createEl("p", {
-      text: "Each local folder and remote pair has its own sync history. Changes downloaded into a shared folder are visible to other remotes.",
-      cls: "remote-sync-settings-caption",
-    });
-    new Setting(folders)
-      .setName("Add remote")
-      .setDesc(
-        viewedAccount
-          ? `Using ${viewedAccount.credentials.accountEmail}. Choose another account above if needed.`
-          : "Connect or unlock a Google account first.",
-      )
-      .addButton((b) =>
-        b
-          .setButtonText("Browse folders")
-          .onClick(() =>
+        false,
+        {
+          addLabel: "Add remote",
+          onAdd: () =>
             new FolderBrowser(
               this.app,
               this.plugin,
               () => this.display(),
               newRemoteAccountRef,
             ).open(),
-          ),
-      )
-      .addButton((b) =>
-        b.setButtonText("Enter ID").onClick(() =>
-          run(async () => {
-            await this.plugin.unlock();
-            const input = await form(this.app, "Select existing folder", [
-              { key: "id", label: "Google Drive folder ID" },
-            ]);
-            if (input)
-              await this.plugin.chooseFolder(
-                input.id!.trim(),
-                newRemoteAccountRef,
-              );
-          }),
-        ),
+          onRename: (id) => run(() => this.plugin.renameRemote(id)),
+          onRemove: (id) => run(() => this.plugin.removeRemote(id)),
+        },
       );
+    } else {
+      photoSelector(
+        folders,
+        [
+          {
+            id: "__no_remote__",
+            title: "No remote selected",
+            description: "Browse Google Drive folders to add one",
+            icon: "cloud",
+          },
+        ],
+        "__no_remote__",
+        "Remote profile",
+        () => {},
+        false,
+        {
+          addLabel: "Add remote",
+          onAdd: () =>
+            new FolderBrowser(
+              this.app,
+              this.plugin,
+              () => this.display(),
+              newRemoteAccountRef,
+            ).open(),
+        },
+      );
+    }
+    folders.createEl("p", {
+      text: "Each local folder and remote pair has its own sync history. Changes downloaded into a shared folder are visible to other remotes.",
+      cls: "remote-sync-settings-caption",
+    });
     button(
       folders,
       "Check connection",
