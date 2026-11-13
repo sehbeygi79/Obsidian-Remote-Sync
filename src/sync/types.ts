@@ -159,4 +159,5 @@ export interface DeviceState {
   activeLocalFolder?: string;
   ignorePatterns?: string[];
   maxConcurrentTransfers?: number;
+  transferChunkSize?: number;
 }

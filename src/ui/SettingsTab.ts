@@ -6,11 +6,13 @@ import { HistoryModal } from "./HistoryModal";
 import { notify } from "./Notifications";
 import { pageHeader } from "./PageHeader";
 import { photoSelector } from "./PhotoSelector";
-import { tokenStatus } from "./TokenStatus";
+import { timeRemaining } from "./TokenStatus";
 import { syncCommits } from "./HistoryGroups";
 import {
   concurrentTransfers,
   MAX_CONCURRENT_TRANSFERS,
+  TRANSFER_CHUNK_SIZES,
+  transferChunkSize,
 } from "../sync/TransferSettings";
 export class RemoteSyncSettings extends PluginSettingTab {
   private countdownTimer?: number;
@@ -57,6 +59,11 @@ export class RemoteSyncSettings extends PluginSettingTab {
       "Remote",
       "Choose one local folder and one remote for each manual sync.",
     );
+    const configurations = section(
+      "Configurations",
+      "Set transfer, history retention and ignored path preferences.",
+      true,
+    );
     const credentialTools = section(
       "Credentials & device transfer",
       "Credentials are encrypted on this device. Unlock once per session.",
@@ -65,6 +72,7 @@ export class RemoteSyncSettings extends PluginSettingTab {
     const history = section(
       "Activity & history",
       "Review each sync commit and its individual file operations.",
+      true,
     );
     const advanced = section(
       "Advanced & recovery",
@@ -100,7 +108,6 @@ export class RemoteSyncSettings extends PluginSettingTab {
     const unlocked = credentials.unlocked;
     const accounts = unlocked ? credentials.accounts : [];
     const profiles = unlocked ? credentials.remotes : [];
-    const connected = unlocked && accounts.length > 0;
     const viewedAccount =
       accounts.find((a) => a.id === this.viewedAccountRef) ??
       accounts.find(
@@ -109,15 +116,13 @@ export class RemoteSyncSettings extends PluginSettingTab {
       accounts[0];
     const newRemoteAccountRef = viewedAccount?.id;
     if (viewedAccount) {
-      photoSelector(
+      const selector = photoSelector(
         account,
         accounts.map((saved) => ({
           id: saved.id,
           title:
             saved.credentials.displayName || saved.credentials.accountEmail,
-          description: saved.credentials.displayName
-            ? saved.credentials.accountEmail
-            : "Google Drive account",
+          description: saved.credentials.accountEmail,
           account: saved.credentials,
         })),
         viewedAccount.id,
@@ -126,50 +131,58 @@ export class RemoteSyncSettings extends PluginSettingTab {
           this.viewedAccountRef = id;
           this.display();
         },
+        false,
+        {
+          onAuthorize: (id) => run(() => this.plugin.connect(id)),
+          onRemove: (id) => run(() => this.plugin.removeAccount(id)),
+          onAdd: () => run(() => this.plugin.connect()),
+          addLabel: "Add account",
+        },
       );
-      countdowns.push(tokenStatus(account, this.plugin, viewedAccount.id));
-      new Setting(account)
-        .setName("Account tools")
-        .addButton((b) =>
-          b
-            .setButtonText("Check account")
-            .onClick(() =>
-              run(() => this.plugin.refreshAccount(viewedAccount.id)),
-            ),
-        )
-        .addButton((b) =>
-          b
-            .setButtonText("Reconnect")
-            .onClick(() => run(() => this.plugin.connect(viewedAccount.id))),
-        )
-        .addButton((b) =>
-          b
-            .setButtonText("Remove account")
-            .onClick(() =>
-              run(() => this.plugin.removeAccount(viewedAccount.id)),
-            ),
-        );
+      const updateAccountRows = () => {
+        for (const saved of accounts) {
+          const status = this.plugin.tokenStatus(saved.id);
+          const consent = status.needsReconnect
+            ? "Authorization required"
+            : status.refreshExpiresAt
+              ? `Consent expires · ${timeRemaining(status.refreshExpiresAt)}`
+              : "Consent expiry not reported";
+          selector.setDescription(
+            saved.id,
+            `${saved.credentials.accountEmail} · ${consent}`,
+          );
+        }
+      };
+      updateAccountRows();
+      countdowns.push(updateAccountRows);
       account.createEl("p", {
-        text: "Access tokens renew automatically. When authorization expires, use Reconnect to sign in again. Google may revoke access earlier than the reported deadline.",
+        text: "Access tokens renew automatically. This countdown shows the Google consent expiry when provided.",
         cls: "remote-sync-settings-caption",
       });
     } else {
-      const status = account.createDiv({ cls: "remote-sync-account-status" });
-      status.createEl("strong", {
-        text: unlocked
-          ? "No Google accounts yet"
-          : credentials.envelope
-            ? "Your accounts are saved"
-            : "Connect Google Drive",
-      });
-      status.createEl("span", {
-        text: unlocked
-          ? "Unlocked"
-          : credentials.envelope
-            ? "Locked"
-            : "Not connected",
-        cls: "remote-sync-badge remote-sync-tone-neutral",
-      });
+      photoSelector(
+        account,
+        [
+          {
+            id: "__no_account__",
+            title: unlocked
+              ? "No Google accounts"
+              : credentials.envelope
+                ? "Accounts locked"
+                : "Connect Google Drive",
+            description: "",
+            icon: "user-round",
+          },
+        ],
+        "__no_account__",
+        "Google account",
+        () => {},
+        false,
+        {
+          onAdd: () => run(() => this.plugin.connect()),
+          addLabel: "Add account",
+        },
+      );
     }
     if (unlocked) {
       // Lock checks plugin.working itself; wrapping it in run() would block it.
@@ -185,29 +198,6 @@ export class RemoteSyncSettings extends PluginSettingTab {
     } else if (credentials.envelope) {
       button(account, "Session", "Unlock", () => this.plugin.unlock());
     }
-    if (!credentials.envelope || unlocked)
-      button(
-        account,
-        accounts.length ? "Another account" : "Desktop connection",
-        accounts.length ? "Add Google account" : "Connect on Ubuntu",
-        () => this.plugin.connect(),
-        "Accounts are added without replacing your other connections.",
-      );
-    const paths = folders.createDiv({ cls: "remote-sync-settings-paths" });
-    const local = paths.createDiv({ cls: "remote-sync-settings-path" });
-    local.createEl("span", {
-      text: "LOCAL FOLDER",
-      cls: "remote-sync-settings-path-label",
-    });
-    local.createEl("strong", {
-      text: this.plugin.localFolder
-        ? `${this.plugin.localFolder}/`
-        : "Entire vault (./)",
-    });
-    local.createEl("p", {
-      text: "Every regular file type, including subfolders.",
-      cls: "remote-sync-settings-caption",
-    });
     photoSelector(
       folders,
       this.plugin.localFolders.map((path) => ({
@@ -221,6 +211,7 @@ export class RemoteSyncSettings extends PluginSettingTab {
       (path) => run(() => this.plugin.selectLocalFolder(path)),
       false,
       {
+        heading: "Local Folder",
         addLabel: "Add local",
         onAdd: () =>
           run(async () => {
@@ -252,22 +243,6 @@ export class RemoteSyncSettings extends PluginSettingTab {
         canRemove: () => this.plugin.localFolders.length > 1,
       },
     );
-    const remote = paths.createDiv({ cls: "remote-sync-settings-path" });
-    remote.createEl("span", {
-      text: "GOOGLE DRIVE",
-      cls: "remote-sync-settings-path-label",
-    });
-    remote.createEl("strong", {
-      text: connected
-        ? credentials.credentials.folderName || "Choose a folder"
-        : credentials.envelope
-          ? "Unlock to view folder"
-          : "Connect to choose a folder",
-    });
-    remote.createEl("p", {
-      text: "An owned, writable My Drive folder.",
-      cls: "remote-sync-settings-caption",
-    });
     if (profiles.length) {
       photoSelector(
         folders,
@@ -288,6 +263,7 @@ export class RemoteSyncSettings extends PluginSettingTab {
         },
         false,
         {
+          heading: "Remote Folder",
           addLabel: "Add remote",
           onAdd: () =>
             new FolderBrowser(
@@ -316,6 +292,7 @@ export class RemoteSyncSettings extends PluginSettingTab {
         () => {},
         false,
         {
+          heading: "Remote Folder",
           addLabel: "Add remote",
           onAdd: () =>
             new FolderBrowser(
@@ -349,38 +326,7 @@ export class RemoteSyncSettings extends PluginSettingTab {
       },
       "Verify your account, folder and refresh grant.",
     );
-    if (connected && credentials.credentials.folderId) {
-      const folderDetails = folders.createEl("details", {
-        cls: "remote-sync-settings-details",
-      });
-      folderDetails.createEl("summary", { text: "Folder details" });
-      new Setting(folderDetails)
-        .setName("Folder ID")
-        .setDesc(credentials.credentials.folderId)
-        .addButton((b) =>
-          b
-            .setButtonText("Open Google Drive")
-            .onClick(() =>
-              window.open(
-                `https://drive.google.com/drive/folders/${encodeURIComponent(credentials.credentials.folderId)}`,
-              ),
-            ),
-        );
-    }
-    button(folders, "Selected local folder", "Create if missing", async () => {
-      const path = this.plugin.localFolder;
-      if (path && !(await this.app.vault.adapter.exists(path))) {
-        if (
-          await confirm(
-            this.app,
-            "Create local root",
-            `Create ${path}/ in this vault?`,
-          )
-        )
-          await this.app.vault.createFolder(path);
-      } else notify("Local folder already exists");
-    });
-    new Setting(folders)
+    new Setting(configurations)
       .setName("Maximum simultaneous transfers")
       .setDesc(
         "Combined uploads and downloads on this device. Applies to the next Apply. Higher limits use more memory; choose 1 for sequential transfers.",
@@ -414,7 +360,44 @@ export class RemoteSyncSettings extends PluginSettingTab {
             }),
           );
       });
-    const ignore = folders.createDiv({ cls: "remote-sync-ignore-settings" });
+    new Setting(configurations)
+      .setName("Transfer chunk size")
+      .setDesc(
+        "Smaller chunks give more frequent progress updates but require more requests. Applies to the next sync on this device.",
+      )
+      .addDropdown((dropdown) => {
+        dropdown.selectEl.setAttribute("aria-label", "Transfer chunk size");
+        for (const size of TRANSFER_CHUNK_SIZES)
+          dropdown.addOption(
+            String(size),
+            size < 1024 * 1024
+              ? `${size / 1024} KiB`
+              : `${size / (1024 * 1024)} MiB`,
+          );
+        dropdown
+          .setValue(
+            String(
+              transferChunkSize(this.plugin.state.state.transferChunkSize),
+            ),
+          )
+          .onChange((value) =>
+            run(async () => {
+              const previous = this.plugin.state.state.transferChunkSize;
+              this.plugin.state.state.transferChunkSize = transferChunkSize(
+                Number(value),
+              );
+              try {
+                await this.plugin.state.save();
+              } catch (error) {
+                this.plugin.state.state.transferChunkSize = previous;
+                throw error;
+              }
+            }),
+          );
+      });
+    const ignore = configurations.createDiv({
+      cls: "remote-sync-ignore-settings",
+    });
     ignore.createEl("h4", { text: "Ignored files and folders" });
     ignore.createEl("p", {
       text: "One entry per line, relative to the vault. Folders include all their contents. Use * for names, ** for nested folders, or # for comments. Applies to every local folder and remote on this device.",
@@ -511,7 +494,7 @@ export class RemoteSyncSettings extends PluginSettingTab {
           .onClick(() => new HistoryModal(this.app, this.plugin.state).open()),
       );
     let retention = String(this.plugin.state.state.retentionDays);
-    new Setting(history)
+    new Setting(configurations)
       .setName("Keep history for")
       .setDesc("Days · 1–3650. Baselines and unresolved entries are retained.")
       .addText((t) => {
@@ -648,7 +631,7 @@ export class RemoteSyncSettings extends PluginSettingTab {
           return;
         }
         for (const update of countdowns) update();
-      }, 1000);
+      }, 60_000);
       this.plugin.registerInterval?.(this.countdownTimer);
     }
     el.createEl("p", {

@@ -126,10 +126,6 @@ export class SyncReviewModal extends Modal {
       attr: { "aria-label": "Sync folders" },
     });
     const localField = locations.createDiv({ cls: "remote-sync-scope-field" });
-    localField.createEl("span", {
-      text: "Local",
-      cls: "remote-sync-scope-label",
-    });
     const selectedLocal = this.plugin.localFolder;
     photoSelector(
       localField,
@@ -150,6 +146,7 @@ export class SyncReviewModal extends Modal {
       },
       this.applying || this.scanning,
       {
+        heading: "Local Folder",
         addLabel: "Add local",
         onAdd: () =>
           this.plugin.run(async () => {
@@ -190,10 +187,6 @@ export class SyncReviewModal extends Modal {
       },
     );
     const remoteField = locations.createDiv({ cls: "remote-sync-scope-field" });
-    remoteField.createEl("span", {
-      text: "Remote",
-      cls: "remote-sync-scope-label",
-    });
     const profiles = unlocked ? (this.plugin.credentials.remotes ?? []) : [];
     if (profiles.length) {
       photoSelector(
@@ -227,6 +220,7 @@ export class SyncReviewModal extends Modal {
         },
         this.applying || this.scanning,
         {
+          heading: "Remote Folder",
           addLabel: "Add remote",
           onAdd: () =>
             new FolderBrowser(
@@ -271,6 +265,7 @@ export class SyncReviewModal extends Modal {
         () => {},
         this.applying || this.scanning,
         {
+          heading: "Remote Folder",
           addLabel: "Add remote",
           onAdd: () =>
             new FolderBrowser(
@@ -497,7 +492,10 @@ export class SyncReviewModal extends Modal {
           : commonActions[0]!;
       for (const c of eligible)
         if (!this.choices.has(c.key)) this.choices.set(c.key, sharedDefault);
-      const group = files.createDiv({ cls: "remote-sync-group" });
+      const category = members[0]!.category;
+      const group = files.createDiv({
+        cls: `remote-sync-group remote-sync-tone-${category}`,
+      });
       const disclosure = group.createEl("details", {
         cls: "remote-sync-group-disclosure",
       });
@@ -506,8 +504,27 @@ export class SyncReviewModal extends Modal {
         if (disclosure.open) this.expandedGroups.add(key);
         else this.expandedGroups.delete(key);
       });
-      disclosure.createEl("summary", {
-        text: `${folder || "Root"} · ${members[0]!.classification} · ${members.length} ${members.length === 1 ? "file" : "files"}`,
+      const summary = disclosure.createEl("summary", {
+        cls: "remote-sync-group-heading",
+      });
+      setIcon(
+        summary.createEl("span", {
+          cls: "remote-sync-group-folder-icon",
+          attr: { "aria-hidden": "true" },
+        }),
+        "folder",
+      );
+      summary.createEl("strong", {
+        text: folder ? `/${folder}/` : "/",
+        cls: "remote-sync-group-path",
+      });
+      summary.createEl("span", {
+        text: `${members.length} ${members.length === 1 ? "file" : "files"}`,
+        cls: "remote-sync-badge remote-sync-tone-neutral remote-sync-group-count",
+      });
+      summary.createEl("span", {
+        text: members[0]!.classification,
+        cls: `remote-sync-badge remote-sync-tone-${category}`,
       });
       const controls = new Setting(
         group.createDiv({ cls: "remote-sync-group-controls" }),

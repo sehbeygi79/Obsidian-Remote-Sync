@@ -10,8 +10,10 @@ export interface PhotoOption {
   icon?: string;
 }
 export interface PhotoSelectorActions {
+  heading?: string;
   onAdd?: () => void;
   addLabel?: string;
+  onAuthorize?: (id: string) => void;
   onRemove?: (id: string) => void;
   canRemove?: (id: string) => boolean;
   onRename?: (id: string) => void;
@@ -25,7 +27,10 @@ export function photoSelector(
   onSelect: (id: string) => void,
   disabled = false,
   actions: PhotoSelectorActions = {},
-): { setValue: (id: string) => void } {
+): {
+  setValue: (id: string) => void;
+  setDescription: (id: string, description: string) => void;
+} {
   const root = parent.createEl("details", {
     cls: "remote-sync-photo-selector",
     attr: { name: "remote-sync-selectors", "data-disabled": String(disabled) },
@@ -39,7 +44,17 @@ export function photoSelector(
     },
   });
   if (disabled) trigger.tabIndex = -1;
-  const selected = trigger.createDiv({ cls: "remote-sync-selector-identity" });
+  const selectedParent = actions.heading
+    ? trigger.createDiv({ cls: "remote-sync-selector-summary" })
+    : trigger;
+  if (actions.heading)
+    selectedParent.createEl("span", {
+      text: actions.heading,
+      cls: "remote-sync-selector-heading",
+    });
+  const selected = selectedParent.createDiv({
+    cls: "remote-sync-selector-identity",
+  });
   trigger.createEl("span", {
     text: "⌄",
     cls: "remote-sync-selector-chevron",
@@ -50,6 +65,7 @@ export function photoSelector(
     attr: { role: "listbox", "aria-label": label },
   });
   const buttons: HTMLButtonElement[] = [];
+  const descriptions = new Map<string, HTMLElement[]>();
   const identity = (target: HTMLElement, option: PhotoOption) => {
     if (option.account) accountAvatar(target, option.account);
     else {
@@ -61,7 +77,10 @@ export function photoSelector(
     }
     const text = target.createDiv({ cls: "remote-sync-selector-text" });
     text.createEl("strong", { text: option.title });
-    text.createEl("span", { text: option.description });
+    const description = text.createEl("span", { text: option.description });
+    const nodes = descriptions.get(option.id) ?? [];
+    nodes.push(description);
+    descriptions.set(option.id, nodes);
   };
   const iconButton = (
     parent: HTMLElement,
@@ -110,6 +129,20 @@ export function photoSelector(
       ),
     );
   };
+  const setDescription = (id: string, description: string) => {
+    const option = options.find((item) => item.id === id);
+    if (!option) return;
+    option.description = description;
+    for (const node of descriptions.get(id) ?? [])
+      node.textContent = description;
+    if (id === value) {
+      trigger.setAttribute(
+        "aria-description",
+        `${option.title}. ${option.description}`,
+      );
+      trigger.title = `${option.title} · ${option.description}`;
+    }
+  };
   for (const [index, option] of options.entries()) {
     const row = menu.createDiv({ cls: "remote-sync-selector-row" });
     const button = row.createEl("button", {
@@ -150,6 +183,10 @@ export function photoSelector(
       }
     });
     buttons.push(button);
+    if (actions.onAuthorize)
+      iconButton(row, "key-round", `Authorize · ${option.title}`, () =>
+        actions.onAuthorize?.(option.id),
+      );
     if (actions.onRename)
       iconButton(row, "pencil", `Rename ${option.title}`, () =>
         actions.onRename?.(option.id),
@@ -158,7 +195,7 @@ export function photoSelector(
       iconButton(
         row,
         "trash-2",
-        `Remove ${option.title}`,
+        `${actions.onAuthorize ? "Remove account" : "Remove"} · ${option.title}`,
         () => actions.onRemove?.(option.id),
         actions.canRemove ? !actions.canRemove(option.id) : false,
       );
@@ -207,5 +244,5 @@ export function photoSelector(
     if (!root.contains(event.relatedTarget as Node | null)) close();
   });
   setValue(value);
-  return { setValue };
+  return { setValue, setDescription };
 }

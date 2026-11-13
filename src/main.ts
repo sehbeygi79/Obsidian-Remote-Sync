@@ -14,7 +14,13 @@ import {
   legacyHashPaths,
 } from "./sync/ReconciliationEngine";
 import type { Review } from "./sync/types";
-import { confirm, downloadFile, form, pickFile } from "./ui/Dialogs";
+import {
+  chooseOAuthClient,
+  confirm,
+  downloadFile,
+  form,
+  pickFile,
+} from "./ui/Dialogs";
 import { SyncReviewModal } from "./ui/SyncReviewModal";
 import { RemoteSyncSettings } from "./ui/SettingsTab";
 import { HistoryModal } from "./ui/HistoryModal";
@@ -43,8 +49,9 @@ export default class RemoteSyncPlugin extends Plugin {
         data: r.arrayBuffer,
       };
     } catch {
+      const host = new URL(req.url).hostname;
       throw new Error(
-        "Network request failed. Check connectivity and manually rescan.",
+        `Network request to ${host} failed. Check connectivity and try again.`,
       );
     }
   };
@@ -197,6 +204,7 @@ export default class RemoteSyncPlugin extends Plugin {
       folderId ?? (remote?.accountRef === accountRef ? remote.folderId : ""),
       c.accountId,
       isIgnored,
+      this.state.state.transferChunkSize,
     );
   }
   context(): string {
@@ -378,59 +386,98 @@ export default class RemoteSyncPlugin extends Plugin {
       throw new Error(
         "Connect on Ubuntu, then import the encrypted bundle on Android",
       );
-    if (
-      !(await confirm(this.app, "Google Drive permission", (container) => {
+    const confirmPermission = () =>
+      confirm(this.app, "Google Drive permission", (container) => {
         container.createEl("p", {
           text: "Remote Sync requires full drive access but confines its file operations to your selected folder.\nContinue to Google consent?",
           cls: "remote-sync-permission-copy",
         });
-      }))
-    )
-      return;
-    const input = await form(
-      this.app,
-      "Connect on Ubuntu",
-      [
-        {
-          key: "clientId",
-          label: "Desktop OAuth client ID",
-          value: accountRef
-            ? this.credentials.account(accountRef).clientId
-            : "",
-        },
-        {
-          key: "clientSecret",
-          label: "Desktop OAuth client secret",
-          secret: true,
-        },
-        ...(!existing
-          ? [
+      });
+    let input: Record<string, string> | null = null;
+    let clientId = "";
+    let clientSecret = "";
+    try {
+      const savedClients = existing
+        ? this.credentials.accounts.map((account) => ({
+            accountRef: account.id,
+            email: account.credentials.accountEmail,
+            clientId: account.credentials.clientId,
+          }))
+        : [];
+      if (savedClients.length) {
+        const choice = await chooseOAuthClient(this.app, savedClients);
+        if (!choice) return;
+        if (choice.kind === "saved") {
+          const saved = this.credentials.account(choice.accountRef);
+          clientId = saved.clientId;
+          clientSecret = saved.clientSecret;
+        } else {
+          input = await form(
+            this.app,
+            "Use a different OAuth client",
+            [
+              { key: "clientId", label: "Desktop OAuth client ID" },
               {
-                key: "passphrase",
-                label: "New encryption passphrase (12+ characters)",
+                key: "clientSecret",
+                label: "Desktop OAuth client secret",
                 secret: true,
               },
-              { key: "repeat", label: "Repeat passphrase", secret: true },
-            ]
-          : []),
-      ],
-      "Create a Desktop app OAuth client in Google Cloud. Values stay in memory until encrypted.",
-    );
-    if (!input) return;
-    try {
+            ],
+            "The client secret is kept encrypted with your saved account credentials.",
+          );
+          if (!input) return;
+          clientId = input.clientId!;
+          clientSecret = input.clientSecret!;
+        }
+        if (!(await confirmPermission())) return;
+      } else {
+        // Keep the first connection flow simple: permission confirmation comes
+        // before collecting OAuth and encryption credentials.
+        if (!(await confirmPermission())) return;
+        input = await form(
+          this.app,
+          "Connect on Ubuntu",
+          [
+            { key: "clientId", label: "Desktop OAuth client ID" },
+            {
+              key: "clientSecret",
+              label: "Desktop OAuth client secret",
+              secret: true,
+            },
+            ...(!existing
+              ? [
+                  {
+                    key: "passphrase",
+                    label: "New encryption passphrase (12+ characters)",
+                    secret: true,
+                  },
+                  { key: "repeat", label: "Repeat passphrase", secret: true },
+                ]
+              : []),
+          ],
+          "Create a Desktop app OAuth client in Google Cloud. Values stay in memory until encrypted.",
+        );
+        if (!input) return;
+        clientId = input.clientId!;
+        clientSecret = input.clientSecret!;
+      }
+      if (!clientId.endsWith(".apps.googleusercontent.com"))
+        throw new Error("Enter a Google Desktop OAuth client ID");
+      if (!clientSecret)
+        throw new Error("Enter a Google Desktop OAuth client secret");
       if (
         !existing &&
-        (input.passphrase !== input.repeat || input.passphrase!.length < 12)
+        (!input ||
+          input.passphrase !== input.repeat ||
+          input.passphrase!.length < 12)
       )
         throw new Error(
           "Passphrases must match and contain at least 12 characters",
         );
-      if (!input.clientId?.endsWith(".apps.googleusercontent.com"))
-        throw new Error("Enter a Google Desktop OAuth client ID");
       const { desktopCode } = await import("./auth/DesktopOAuth");
       notify("Remote Sync: complete Google consent in your browser.");
       const callback = await desktopCode(
-        input.clientId,
+        clientId,
         (url) => {
           window.open(url);
         },
@@ -438,8 +485,8 @@ export default class RemoteSyncPlugin extends Plugin {
       );
       const c = await exchangeCode(
         this.http,
-        input.clientId,
-        input.clientSecret!,
+        clientId,
+        clientSecret,
         callback.code,
         callback.verifier,
         callback.redirectUri,
@@ -451,7 +498,7 @@ export default class RemoteSyncPlugin extends Plugin {
       )
         throw new Error("Sign in to the same Google account when reconnecting");
       if (existing) await this.credentials.addAccount(c);
-      else await this.credentials.install(c, input.passphrase!);
+      else await this.credentials.install(c, input!.passphrase!);
       this.clearAuth();
       this.invalidateReviews();
       notify(
@@ -459,7 +506,9 @@ export default class RemoteSyncPlugin extends Plugin {
         "success",
       );
     } finally {
-      for (const k of Object.keys(input)) input[k] = "";
+      clientId = "";
+      clientSecret = "";
+      if (input) for (const k of Object.keys(input)) input[k] = "";
     }
   }
   async importCredentials(): Promise<void> {

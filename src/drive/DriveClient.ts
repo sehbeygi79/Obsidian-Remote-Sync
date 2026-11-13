@@ -4,6 +4,7 @@ import { ReadBatch } from "../utils/ReadBatch";
 import type { AuthProvider } from "../auth/OAuthManager";
 import { affected, basename, parent, relative, segment } from "../utils/paths";
 import { fingerprint } from "../sync/ReconciliationEngine";
+import { transferChunkSize } from "../sync/TransferSettings";
 import type {
   ByteProgress,
   FileState,
@@ -19,7 +20,6 @@ import {
   type HttpResponse,
 } from "./Http";
 const API = "https://www.googleapis.com/drive/v3";
-const TRANSFER_CHUNK = 8 * 1024 * 1024;
 export const FOLDER = "application/vnd.google-apps.folder";
 const FIELDS =
   "id,name,mimeType,size,modifiedTime,sha256Checksum,md5Checksum,version,parents,trashed,ownedByMe,driveId,capabilities(canDownload,canEdit,canTrash,canAddChildren)";
@@ -83,6 +83,7 @@ export class DriveClient implements RemoteBackend {
     public folderId: string,
     private accountId: string,
     private isIgnored: (path: string) => boolean = () => false,
+    private chunkSize: number = transferChunkSize(undefined),
   ) {}
   async request(
     path: string,
@@ -409,7 +410,7 @@ export class DriveClient implements RemoteBackend {
     if (!file.id) throw new Error("Missing remote identity");
     const endpoint = `/files/${file.id}?alt=media`;
     onProgress?.(0, file.size);
-    if (!onProgress || file.size <= TRANSFER_CHUNK) {
+    if (!onProgress || file.size <= this.chunkSize) {
       const response = await this.request(endpoint);
       ok(response);
       if (onProgress && response.data.byteLength !== file.size)
@@ -421,7 +422,7 @@ export class DriveClient implements RemoteBackend {
     // whose public API has no streaming/download progress callback.
     let result: Uint8Array<ArrayBuffer> | undefined;
     for (let offset = 0; offset < file.size;) {
-      const end = Math.min(offset + TRANSFER_CHUNK, file.size);
+      const end = Math.min(offset + this.chunkSize, file.size);
       const response = await this.request(endpoint, "GET", undefined, {
         Range: `bytes=${offset}-${end - 1}`,
         ...(file.etag ? { "If-Match": file.etag } : {}),
@@ -571,7 +572,7 @@ export class DriveClient implements RemoteBackend {
     ok(start);
     const session = header(start, "location");
     if (!session) throw new Error("Missing resumable upload session");
-    const chunk = TRANSFER_CHUNK;
+    const chunk = this.chunkSize;
     if (data.byteLength === 0) {
       const r = await this.request(
         session,

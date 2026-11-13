@@ -31,6 +31,7 @@ function driveFile(name = "a.pdf", id = "id-a") {
 function mock(
   extra?: (req: HttpRequest) => HttpResponse | undefined,
   isIgnored?: (path: string) => boolean,
+  chunkSize?: number,
 ) {
   const requests: HttpRequest[] = [];
   const http: Http = async (req) => {
@@ -59,7 +60,14 @@ function mock(
   };
   const auth = { token: vi.fn(async () => "access-secret"), lock: vi.fn() };
   return {
-    drive: new DriveClient(http, auth, "folder", "account", isIgnored),
+    drive: new DriveClient(
+      http,
+      auth,
+      "folder",
+      "account",
+      isIgnored,
+      chunkSize,
+    ),
     requests,
     auth,
   };
@@ -384,6 +392,53 @@ describe("Drive mutations", () => {
     );
     expect(chunks).toBe(2);
   });
+  it("uses the configured chunk size for uploads", async () => {
+    const size = 256 * 1024,
+      total = size * 2 + 1,
+      progress = vi.fn();
+    const { drive, requests } = mock(
+      (req) => {
+        const path = new URL(req.url).pathname;
+        if (path === "/upload/drive/v3/files")
+          return response({}, 200, {
+            location: "https://www.googleapis.com/upload-session",
+          });
+        if (path === "/upload-session") {
+          const end = Number(
+            req.headers!["Content-Range"]!.match(/-(\d+)\//)![1],
+          );
+          return end + 1 === total
+            ? response({})
+            : response({}, 308, { range: `bytes=0-${end}` });
+        }
+        if (path.endsWith("/files")) return response({ files: [] });
+      },
+      undefined,
+      size,
+    );
+    await drive.upload(
+      "new",
+      new ArrayBuffer(total),
+      null,
+      "reserved",
+      progress,
+    );
+    expect(
+      requests
+        .filter((req) => new URL(req.url).pathname === "/upload-session")
+        .map((req) => req.headers!["Content-Range"]),
+    ).toEqual([
+      `bytes 0-${size - 1}/${total}`,
+      `bytes ${size}-${2 * size - 1}/${total}`,
+      `bytes ${2 * size}-${total - 1}/${total}`,
+    ]);
+    expect(progress.mock.calls).toEqual([
+      [0, total],
+      [size, total],
+      [size * 2, total],
+      [total, total],
+    ]);
+  });
   it("network interruption is not retried as another create", async () => {
     let creates = 0;
     const { drive } = mock((req) => {
@@ -436,6 +491,35 @@ describe("download byte progress", () => {
   const chunk = 8 * 1024 * 1024,
     total = 9 * 1024 * 1024;
   const remote = () => ({ ...file(), id: "id-a", size: total });
+
+  it("uses the configured chunk size for downloads", async () => {
+    const size = 256 * 1024,
+      total = size * 2 + 1,
+      progress = vi.fn();
+    const { drive } = mock(
+      (req) => {
+        if (!req.url.includes("alt=media")) return;
+        const match = req.headers!.Range!.match(/bytes=(\d+)-(\d+)/)!;
+        const start = Number(match[1]),
+          end = Number(match[2]);
+        return {
+          ...response({}, 206, {
+            "Content-Range": `bytes ${start}-${end}/${total}`,
+          }),
+          data: new ArrayBuffer(end - start + 1),
+        };
+      },
+      undefined,
+      size,
+    );
+    await drive.read({ ...file(), id: "id-a", size: total }, progress);
+    expect(progress.mock.calls).toEqual([
+      [0, total],
+      [size, total],
+      [size * 2, total],
+      [total, total],
+    ]);
+  });
 
   it("assembles validated ranges and reports received bytes", async () => {
     const progress = vi.fn();

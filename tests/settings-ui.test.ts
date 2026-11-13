@@ -54,7 +54,7 @@ function fixture(connected = true, saved = true) {
     localFolder: "materials",
     localFolders: ["materials"],
     saveIgnorePatterns: vi.fn(async (_value: string) => {}),
-    manifest: { version: "1.4.0" },
+    manifest: { version: "1.5.0" },
     executor: {},
     lock: vi.fn(() => {
       if (working) throw new Error("Cannot lock during a task");
@@ -121,20 +121,33 @@ describe("Remote Sync settings", () => {
     );
     expect(f.errors).toEqual([]);
   });
-  it("shows account and folder cards while keeping transfer and recovery tools collapsed", () => {
+  it("shows account and folder selectors while keeping configuration, history and recovery sections collapsed", () => {
     const { root, plugin } = fixture();
     expect(text(root)).toContain("person@example.test");
     expect(text(root)).toContain("Test remote");
     const cards = root.all((el) => el.classes.has("remote-sync-settings-card"));
-    expect(cards).toHaveLength(5);
+    expect(cards).toHaveLength(6);
     expect(
       cards
         .filter((el) => el.tag === "details")
         .map((el) => el.children[0]!.textContent),
-    ).toEqual(["Credentials & device transfer", "Advanced & recovery"]);
+    ).toEqual([
+      "Configurations",
+      "Credentials & device transfer",
+      "Activity & history",
+      "Advanced & recovery",
+    ]);
     expect(
       cards.filter((el) => el.tag === "details").every((el) => !el.open),
     ).toBe(true);
+    const configuration = cards.find(
+      (el) =>
+        el.tag === "details" &&
+        el.children[0]!.textContent === "Configurations",
+    )!;
+    expect(text(configuration)).toContain("Ignored files and folders");
+    expect(text(configuration)).toContain("Maximum simultaneous transfers");
+    expect(text(configuration)).toContain("Keep history for");
     expect(plugin.drive).not.toHaveBeenCalled();
     expect(plugin.manager).not.toHaveBeenCalled();
     expect(plugin.run).not.toHaveBeenCalled();
@@ -148,7 +161,18 @@ describe("Remote Sync settings", () => {
       const { root, button } = fixture(connected, saved);
       expect(text(root)).not.toContain("person@example.test");
       expect(text(root)).not.toContain("Test remote");
-      expect(button(saved ? "Unlock" : "Connect on Ubuntu")).toBeDefined();
+      if (saved) expect(button("Unlock")).toBeDefined();
+      const account = root.all((el) =>
+        el.classes.has("remote-sync-photo-selector"),
+      )[0]!;
+      expect(text(account)).toContain(
+        saved ? "Accounts locked" : "Connect Google Drive",
+      );
+      expect(
+        text(
+          account.all((el) => el.classes.has("remote-sync-selector-add"))[0]!,
+        ),
+      ).toContain("Add account");
       expect(button("Export").disabled).toBe(!saved);
       expect(button("Change").disabled).toBe(!saved);
     },
@@ -158,7 +182,7 @@ describe("Remote Sync settings", () => {
     button("Lock").listeners.click!();
     expect(plugin.lock).toHaveBeenCalledOnce();
     expect(plugin.run).not.toHaveBeenCalled();
-    expect(text(root)).toContain("Locked");
+    expect(text(root)).toContain("Accounts locked");
     expect(text(root)).not.toContain("person@example.test");
   });
   it("saves history retention only when Save is clicked and rejects invalid values", async () => {
@@ -217,7 +241,7 @@ describe("Remote Sync settings", () => {
   });
 });
 
-it("keeps token information in the account section and exposes remotes through a compact photo selector", () => {
+it("shows consent expiry in account rows and titles the local and remote selectors", () => {
   const f = fixture();
   const sections = f.root.all((el) =>
     el.classes.has("remote-sync-settings-card"),
@@ -227,13 +251,30 @@ it("keeps token information in the account section and exposes remotes through a
   expect(remote.children[0]!.textContent).toBe("Remote");
   expect(
     account.all((el) => el.classes.has("remote-sync-token-status")),
+  ).toHaveLength(0);
+  expect(text(account)).toContain("Consent expiry not reported");
+  expect(
+    account.all(
+      (el) => el.attributes["aria-label"]?.startsWith("Check account") ?? false,
+    ),
+  ).toHaveLength(0);
+  expect(
+    account.all(
+      (el) => el.attributes["aria-label"] === "Authorize · person@example.test",
+    ),
   ).toHaveLength(1);
+  expect(text(account)).toContain("Add account");
   expect(
     remote.all((el) => el.classes.has("remote-sync-token-status")),
   ).toHaveLength(0);
   expect(
     remote.all((el) => el.classes.has("remote-sync-photo-selector")),
   ).toHaveLength(2);
+  expect(
+    remote
+      .all((el) => el.classes.has("remote-sync-selector-heading"))
+      .map((el) => el.textContent),
+  ).toEqual(["Local Folder", "Remote Folder"]);
   expect(
     remote.all((el) => el.classes.has("remote-sync-remote-card")),
   ).toHaveLength(0);
@@ -290,4 +331,17 @@ it("saves the simultaneous transfer limit on this device without scanning or ref
   expect(f.plugin.drive).not.toHaveBeenCalled();
   expect(f.plugin.manager).not.toHaveBeenCalled();
   expect(f.errors).toEqual([]);
+});
+
+it("saves the chosen transfer chunk size", async () => {
+  const f = fixture();
+  const dropdown = f.root.all(
+    (el) => el.attributes["aria-label"] === "Transfer chunk size",
+  )[0]!;
+  expect(dropdown.value).toBe(String(8 * 1024 * 1024));
+  dropdown.value = String(256 * 1024);
+  dropdown.listeners.change!();
+  await Promise.all(f.tasks);
+  expect(f.state.state.transferChunkSize).toBe(256 * 1024);
+  expect(f.save).toHaveBeenCalledOnce();
 });

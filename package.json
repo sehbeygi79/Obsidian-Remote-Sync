@@ -1,6 +1,6 @@
 {
   "name": "obsidian-remote-sync",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "Selectively sync Obsidian vault attachments and files with remote drives.",
   "scripts": {

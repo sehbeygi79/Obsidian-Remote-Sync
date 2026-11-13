@@ -5,6 +5,8 @@ import { IgnoreRules } from "../utils/IgnoreRules";
 import {
   concurrentTransfers,
   DEFAULT_CONCURRENT_TRANSFERS,
+  DEFAULT_TRANSFER_CHUNK,
+  transferChunkSize,
 } from "./TransferSettings";
 export interface PrivateStorage {
   read(path: string): Promise<string>;
@@ -30,6 +32,7 @@ export function freshState(): DeviceState {
     activeLocalFolder: ROOT,
     ignorePatterns: [],
     maxConcurrentTransfers: DEFAULT_CONCURRENT_TRANSFERS,
+    transferChunkSize: DEFAULT_TRANSFER_CHUNK,
   };
 }
 export class SyncStateStore {
@@ -74,6 +77,7 @@ export class SyncStateStore {
         state.maxConcurrentTransfers = concurrentTransfers(
           state.maxConcurrentTransfers,
         );
+        state.transferChunkSize = transferChunkSize(state.transferChunkSize);
         new IgnoreRules(state.ignorePatterns);
         if (
           !Array.isArray(state.localFolders) ||

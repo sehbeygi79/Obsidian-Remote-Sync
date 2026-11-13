@@ -1,6 +1,62 @@
 import { App, Modal, Setting } from "obsidian";
 import { MAX_CREDENTIAL_FILE_SIZE } from "../auth/CredentialEncryption";
 import { pageHeader } from "./PageHeader";
+export interface SavedOAuthClient {
+  accountRef: string;
+  email: string;
+  clientId: string;
+}
+export type OAuthClientChoice =
+  { kind: "saved"; accountRef: string } | { kind: "new" } | null;
+
+/** Offer saved encrypted OAuth clients without rendering their client secrets. */
+export function chooseOAuthClient(
+  app: App,
+  clients: SavedOAuthClient[],
+): Promise<OAuthClientChoice> {
+  return new Promise((resolve) => {
+    class OAuthClientPicker extends Modal {
+      private choice: OAuthClientChoice = null;
+      onOpen(): void {
+        this.modalEl.addClass("remote-sync-dialog");
+        pageHeader(this.contentEl, "Choose OAuth client");
+        this.contentEl.createEl("p", {
+          text: "Use an encrypted client already saved with an account, or enter a different client ID and secret.",
+        });
+        for (const client of clients)
+          new Setting(this.contentEl)
+            .setName(client.email)
+            .setDesc(`Client ID · ${client.clientId}`)
+            .addButton((button) =>
+              button.setButtonText("Use saved client").onClick(() => {
+                this.choice = { kind: "saved", accountRef: client.accountRef };
+                this.close();
+              }),
+            );
+        new Setting(this.contentEl)
+          .setName("Different OAuth client")
+          .setDesc(
+            "Enter a client ID and secret. The secret is stored encrypted.",
+          )
+          .addButton((button) =>
+            button.setButtonText("Enter new client").onClick(() => {
+              this.choice = { kind: "new" };
+              this.close();
+            }),
+          );
+        new Setting(this.contentEl).addButton((button) =>
+          button.setButtonText("Cancel").onClick(() => this.close()),
+        );
+      }
+      onClose(): void {
+        resolve(this.choice);
+        this.contentEl.empty();
+      }
+    }
+    new OAuthClientPicker(app).open();
+  });
+}
+
 export function confirm(
   app: App,
   title: string,

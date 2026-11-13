@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { App } from "obsidian";
-import { confirm, form } from "../src/ui/Dialogs";
+import { chooseOAuthClient, confirm, form } from "../src/ui/Dialogs";
 import { Modal } from "./ui-host";
 
 describe("Remote Sync dialogs", () => {
@@ -42,6 +42,39 @@ describe("Remote Sync dialogs", () => {
     Modal.opened[0]!.contentEl.all((el) => el.textContent === "Cancel")[0]!
       .listeners.click!();
     await expect(result).resolves.toBeNull();
+  });
+  it("offers saved encrypted OAuth clients and a separate new-client choice", async () => {
+    const result = chooseOAuthClient({} as App, [
+      {
+        accountRef: "account-one",
+        email: "person@example.test",
+        clientId: "desktop.apps.googleusercontent.com",
+      },
+    ]);
+    const modal = Modal.opened[0]!;
+    const labels = modal.contentEl.all(() => true).map((el) => el.textContent);
+    expect(labels.join(" ")).toContain("person@example.test");
+    expect(labels.join(" ")).toContain("desktop.apps.googleusercontent.com");
+    const saved = modal.contentEl.all(
+      (el) => el.tag === "button" && el.textContent === "Use saved client",
+    )[0]!;
+    saved.listeners.click!();
+    await expect(result).resolves.toEqual({
+      kind: "saved",
+      accountRef: "account-one",
+    });
+
+    const newClient = chooseOAuthClient({} as App, [
+      {
+        accountRef: "account-one",
+        email: "person@example.test",
+        clientId: "desktop.apps.googleusercontent.com",
+      },
+    ]);
+    Modal.opened[0]!.contentEl.all(
+      (el) => el.tag === "button" && el.textContent === "Enter new client",
+    )[0]!.listeners.click!();
+    await expect(newClient).resolves.toEqual({ kind: "new" });
   });
   it("accepts Enter in a passphrase input but waits for IME composition to finish", async () => {
     const result = form({} as App, "Unlock credentials", [

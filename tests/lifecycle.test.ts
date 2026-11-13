@@ -20,7 +20,7 @@ function fixture() {
   const plugin = new RemoteSyncPlugin({} as App, {
     id: "obsidian-remote-sync",
     name: "Remote Sync",
-    version: "1.4.0",
+    version: "1.5.0",
     minAppVersion: "1.8.7",
     description: "",
     author: "",

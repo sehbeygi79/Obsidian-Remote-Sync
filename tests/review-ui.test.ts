@@ -451,6 +451,10 @@ it("switches local folders with the shared selector and clears stale selections"
     (element) => element.attributes["aria-label"] === "Local folder",
   )[0]!;
   expect(trigger.tag).toBe("summary");
+  expect(
+    f.content.all((el) => el.classes.has("remote-sync-selector-heading"))[0]!
+      .textContent,
+  ).toBe("Local Folder");
   const rootOption = f.content.all(
     (element) => element.attributes["data-value"] === "",
   )[0]!;
@@ -501,6 +505,10 @@ it("switches remote profiles through a fresh scan and clears the previous file s
     (el) => el.attributes["aria-label"] === "Remote profile",
   )[0]!;
   expect(selector.tag).toBe("summary");
+  expect(
+    f.content.all((el) => el.classes.has("remote-sync-selector-heading"))[1]!
+      .textContent,
+  ).toBe("Remote Folder");
   const option = f.content.all(
     (el) => el.attributes["data-value"] === "second",
   )[0]!;
@@ -594,23 +602,25 @@ it("groups sibling changes by folder and classification, with group and individu
   const groups = () =>
     f.content.all((el) => el.classes.has("remote-sync-group"));
   expect(groups()).toHaveLength(4);
-  const localGroup = () =>
-    groups().find((group) =>
-      group
-        .querySelector("summary")!
-        .textContent.includes("f1 · Local addition"),
-    )!;
-  const remoteGroup = groups().find((group) =>
+  const summaryText = (group: ReturnType<typeof groups>[number]) =>
     group
       .querySelector("summary")!
-      .textContent.includes("f1 · Remote addition"),
+      .all(() => true)
+      .map((el) => el.textContent)
+      .join(" ");
+  const localGroup = () =>
+    groups().find(
+      (group) =>
+        summaryText(group).includes("/f1/") &&
+        summaryText(group).includes("Local addition"),
+    )!;
+  const remoteGroup = groups().find(
+    (group) =>
+      summaryText(group).includes("/f1/") &&
+      summaryText(group).includes("Remote addition"),
   )!;
-  expect(localGroup().querySelector("summary")!.textContent).toContain(
-    "2 files",
-  );
-  expect(remoteGroup.querySelector("summary")!.textContent).toContain(
-    "2 files",
-  );
+  expect(summaryText(localGroup())).toContain("2 files");
+  expect(summaryText(remoteGroup)).toContain("2 files");
   expect(localGroup().querySelector("details")!.open).toBe(false);
   localGroup().all((el) => el.textContent === "Select group")[0]!.listeners
     .click!();

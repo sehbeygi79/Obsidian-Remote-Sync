@@ -12,7 +12,9 @@
   flex-direction: column;
   gap: 18px;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-width: 0;
 }
 .remote-sync-review [hidden] {
   display: none !important;
@@ -39,19 +41,8 @@
 }
 .remote-sync-scope-field {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
-}
-.remote-sync-scope-label {
-  font-size: var(--font-ui-small);
-  color: var(--text-muted);
-}
-.remote-sync-scope-placeholder {
-  padding: 8px 0;
-  font-size: var(--font-ui-small);
-  color: var(--text-muted);
 }
 .remote-sync-review-overview .remote-sync-meta-row {
   grid-template-columns: 68px minmax(0, 1fr);
@@ -411,6 +402,7 @@
 }
 .remote-sync-files {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 80px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -600,6 +592,14 @@
 }
 .remote-sync-review-footer > .setting-item {
   margin-top: 12px;
+}
+.remote-sync-review-footer .setting-item-control,
+.remote-sync-group-controls .setting-item-control {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.remote-sync-group-controls select {
+  max-width: 100%;
 }
 .remote-sync-notices {
   position: fixed;
@@ -997,42 +997,6 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.remote-sync-settings-paths {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 8px;
-}
-.remote-sync-settings-path {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  padding: 14px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 9px;
-  background: var(--background-secondary);
-}
-.remote-sync-settings-path-label {
-  color: var(--text-accent);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-}
-.remote-sync-settings-path strong {
-  font-size: var(--font-ui-small);
-  overflow-wrap: anywhere;
-}
-.remote-sync-settings-path .remote-sync-settings-caption {
-  margin: 0;
-}
-.remote-sync-settings-details {
-  margin: 6px 0;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-.remote-sync-settings-details > summary {
-  cursor: pointer;
-}
 .remote-sync-settings input[type="number"] {
   width: 75px;
 }
@@ -1050,9 +1014,6 @@
   }
   .remote-sync-account-status {
     flex-wrap: wrap;
-  }
-  .remote-sync-settings-paths {
-    grid-template-columns: 1fr;
   }
   .remote-sync-settings .setting-item {
     flex-direction: column;
@@ -1100,9 +1061,6 @@
   }
   .remote-sync-settings-card {
     padding: 14px;
-  }
-  .remote-sync-settings-paths {
-    grid-template-columns: 1fr;
   }
   .remote-sync-settings .setting-item {
     flex-wrap: wrap;
@@ -1261,6 +1219,18 @@
   gap: 12px;
   flex: 1;
   min-width: 0;
+}
+.remote-sync-selector-summary {
+  display: grid;
+  flex: 1;
+  gap: 5px;
+  min-width: 0;
+}
+.remote-sync-selector-heading {
+  color: var(--text-accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 .remote-sync-selector-text {
   display: grid;
@@ -1499,6 +1469,20 @@
   .remote-sync-review-overview .remote-sync-toolbar {
     gap: 10px;
   }
+  .remote-sync-review .remote-sync-files {
+    flex: none;
+    overflow: visible;
+  }
+}
+@media (max-height: 650px) {
+  .remote-sync-review .remote-sync-files,
+  .remote-sync-history .remote-sync-history-content-area {
+    flex: none;
+    overflow: visible;
+  }
+  .remote-sync-history .remote-sync-history-content {
+    overflow: auto;
+  }
 }
 .remote-sync-settings
   .setting-item:has(.setting-item-description:empty)
@@ -1507,14 +1491,54 @@
 }
 
 .remote-sync-group {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  margin-bottom: 10px;
-  padding: 10px;
+  border-color: var(--remote-sync-tone, var(--background-modifier-border));
+  border-inline-start: 3px solid
+    var(--remote-sync-tone, var(--background-modifier-border));
+  border-radius: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--background-secondary) 42%, transparent);
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+.remote-sync-group:has(.remote-sync-group-disclosure[open]) {
+  background: color-mix(in srgb, var(--background-secondary) 58%, transparent);
 }
 .remote-sync-group-disclosure > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
   cursor: pointer;
-  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.remote-sync-group-path {
+  min-width: 0;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.remote-sync-group-folder-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--remote-sync-tone, var(--text-muted));
+}
+.remote-sync-group-folder-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.remote-sync-group-count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .remote-sync-group-controls {
   margin-top: 8px;
