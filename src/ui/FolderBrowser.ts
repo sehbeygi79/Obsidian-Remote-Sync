@@ -4,6 +4,7 @@ import { confirm, form } from "./Dialogs";
 import { pageHeader } from "./PageHeader";
 
 export class FolderBrowser extends Modal {
+  private sharedView = false;
   private stack: { id: string; name: string }[] = [
     { id: "root", name: "My Drive" },
   ];
@@ -28,10 +29,28 @@ export class FolderBrowser extends Modal {
     this.contentEl.createEl("p", {
       text: this.stack.map((f) => f.name).join(" / "),
     });
-    const folders = await this.plugin
-      .drive(this.accountRef)
-      .folders(current.id);
+    const sharedRoot = this.sharedView && this.stack.length === 1;
+    const folders = sharedRoot
+      ? await this.plugin.drive(this.accountRef).sharedFolders()
+      : await this.plugin.drive(this.accountRef).folders(current.id);
     const nav = new Setting(this.contentEl);
+    if (this.stack.length === 1)
+      nav.addButton((b) =>
+        b
+          .setButtonText(this.sharedView ? "My Drive" : "Shared with me")
+          .onClick(() =>
+            this.plugin.run(async () => {
+              this.sharedView = !this.sharedView;
+              this.stack = [
+                {
+                  id: "root",
+                  name: this.sharedView ? "Shared with me" : "My Drive",
+                },
+              ];
+              await this.render();
+            }),
+          ),
+      );
     if (this.stack.length > 1)
       nav.addButton((b) =>
         b.setButtonText("Up").onClick(() =>
@@ -54,29 +73,30 @@ export class FolderBrowser extends Modal {
             }),
           ),
       );
-    nav.addButton((b) =>
-      b.setButtonText("Create folder here").onClick(() =>
-        this.plugin.run(async () => {
-          const input = await form(this.app, "Create Drive folder", [
-            { key: "name", label: "Folder name" },
-          ]);
-          if (!input) return;
-          if (
-            !(await confirm(
-              this.app,
-              "Create folder",
-              `Create ${input.name} in ${current.name}?`,
-            ))
-          )
-            return;
-          const folder = await this.plugin
-            .drive(this.accountRef)
-            .createFolder(input.name!, current.id);
-          this.stack.push(folder);
-          await this.render();
-        }),
-      ),
-    );
+    if (!sharedRoot)
+      nav.addButton((b) =>
+        b.setButtonText("Create folder here").onClick(() =>
+          this.plugin.run(async () => {
+            const input = await form(this.app, "Create Drive folder", [
+              { key: "name", label: "Folder name" },
+            ]);
+            if (!input) return;
+            if (
+              !(await confirm(
+                this.app,
+                "Create folder",
+                `Create ${input.name} in ${current.name}?`,
+              ))
+            )
+              return;
+            const folder = await this.plugin
+              .drive(this.accountRef)
+              .createFolder(input.name!, current.id);
+            this.stack.push(folder);
+            await this.render();
+          }),
+        ),
+      );
     for (const folder of folders)
       new Setting(this.contentEl)
         .setName(folder.name)
@@ -90,6 +110,6 @@ export class FolderBrowser extends Modal {
           ),
         );
     if (!folders.length)
-      this.contentEl.createEl("p", { text: "No owned subfolders." });
+      this.contentEl.createEl("p", { text: "No folders found." });
   }
 }

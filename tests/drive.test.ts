@@ -25,7 +25,13 @@ function driveFile(name = "a.pdf", id = "id-a") {
     version: "1",
     parents: ["folder"],
     ownedByMe: true,
-    capabilities: { canDownload: true, canEdit: true, canTrash: true },
+    capabilities: {
+      canDownload: true,
+      canEdit: true,
+      canTrash: true,
+      canRename: true,
+      canMoveItemWithinDrive: true,
+    },
   };
 }
 function mock(
@@ -267,7 +273,7 @@ describe("Drive scanner fails closed", () => {
     );
     await expect(drive.scan()).rejects.toThrow();
   });
-  it("nonowned or shared root is refused", async () => {
+  it("accepts an accessible shared root", async () => {
     const { drive } = mock((req) =>
       req.url.includes("/files/folder?")
         ? response({
@@ -278,7 +284,67 @@ describe("Drive scanner fails closed", () => {
           })
         : undefined,
     );
-    await expect(drive.scan()).rejects.toThrow("owned");
+    expect((await drive.scan()).folderWrite![""]).toBe(false);
+  });
+  it("scans files inside a folder created by another user and records permissions", async () => {
+    const { drive } = mock((req) => {
+      const url = new URL(req.url);
+      if (!url.pathname.endsWith("/files")) return;
+      const nested = url.searchParams.get("q")?.includes("'shared-folder'");
+      return response({
+        files: nested
+          ? [
+              {
+                ...driveFile("note.md", "shared-file"),
+                parents: ["shared-folder"],
+                ownedByMe: false,
+                capabilities: {
+                  canDownload: true,
+                  canEdit: false,
+                  canTrash: false,
+                },
+              },
+            ]
+          : [
+              {
+                id: "shared-folder",
+                name: "shared",
+                mimeType: FOLDER,
+                parents: ["folder"],
+                ownedByMe: false,
+                capabilities: { canAddChildren: false },
+              },
+            ],
+      });
+    });
+    const snapshot = await drive.scan();
+    expect(snapshot.blocked).toEqual([]);
+    expect(snapshot.folderWrite!["shared"]).toBe(false);
+    expect(snapshot.files["shared/note.md"]).toMatchObject({
+      shared: true,
+      permissions: { download: true, edit: false, trash: false },
+    });
+  });
+  it("lists directly shared folders", async () => {
+    const { drive, requests } = mock((req) => {
+      if (new URL(req.url).searchParams.get("q")?.includes("sharedWithMe"))
+        return response({
+          files: [
+            {
+              id: "shared-folder",
+              name: "Shared",
+              mimeType: FOLDER,
+              ownedByMe: false,
+            },
+          ],
+        });
+    });
+    expect(await drive.sharedFolders()).toEqual([
+      { id: "shared-folder", name: "Shared" },
+    ]);
+    expect(new URL(requests[0]!.url).searchParams.get("q")).toContain(
+      "sharedWithMe",
+    );
   });
   it("invalid child parent identity is rejected", async () => {
     const { drive } = mock((req) =>
@@ -835,7 +901,7 @@ it("scoped Drive checks block inaccessible ancestors and never treat incomplete 
         {
           ...driveFile("selected", "selected"),
           mimeType: FOLDER,
-          ownedByMe: false,
+          driveId: "shared-drive",
         },
       ],
       ...(incomplete ? { incompleteSearch: true } : {}),

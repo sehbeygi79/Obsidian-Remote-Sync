@@ -22,7 +22,7 @@ import {
 const API = "https://www.googleapis.com/drive/v3";
 export const FOLDER = "application/vnd.google-apps.folder";
 const FIELDS =
-  "id,name,mimeType,size,modifiedTime,sha256Checksum,md5Checksum,version,parents,trashed,ownedByMe,driveId,capabilities(canDownload,canEdit,canTrash,canAddChildren)";
+  "id,name,mimeType,size,modifiedTime,sha256Checksum,md5Checksum,version,parents,trashed,ownedByMe,driveId,capabilities(canDownload,canEdit,canTrash,canAddChildren,canRename,canMoveItemWithinDrive)";
 interface DriveFile {
   id: string;
   name: string;
@@ -41,6 +41,8 @@ interface DriveFile {
     canEdit?: boolean;
     canTrash?: boolean;
     canAddChildren?: boolean;
+    canRename?: boolean;
+    canMoveItemWithinDrive?: boolean;
   };
 }
 interface Page {
@@ -207,15 +209,9 @@ export class DriveClient implements RemoteBackend {
     id = this.folderId,
   ): Promise<{ id: string; name: string }> {
     const f = await this.metadata(id);
-    if (
-      f.trashed ||
-      f.mimeType !== FOLDER ||
-      !f.ownedByMe ||
-      f.driveId ||
-      !f.capabilities?.canAddChildren
-    )
+    if (f.trashed || f.mimeType !== FOLDER || f.driveId)
       throw new Error(
-        "Select an owned, writable My Drive folder. Shared-drive and shared-only trees are unsupported in v1.",
+        "Select an accessible My Drive or shared folder. Shared drives are not supported.",
       );
     return { id: f.id, name: f.name };
   }
@@ -264,15 +260,48 @@ export class DriveClient implements RemoteBackend {
   }
   async folders(id = "root"): Promise<{ id: string; name: string }[]> {
     return (await this.children(id, true))
-      .filter((f) => f.ownedByMe && !f.driveId)
+      .filter((f) => !f.driveId)
       .map((f) => ({ id: f.id, name: f.name }));
+  }
+  async sharedFolders(): Promise<{ id: string; name: string }[]> {
+    const results: { id: string; name: string }[] = [];
+    const seen = new Set<string>();
+    let token = "";
+    do {
+      const params = new URLSearchParams({
+        q: `sharedWithMe = true and trashed = false and mimeType = '${FOLDER}'`,
+        pageSize: "1000",
+        fields: `nextPageToken,incompleteSearch,files(${FIELDS})`,
+      });
+      if (token) params.set("pageToken", token);
+      const page = await this.data<Page>(`/files?${params}`);
+      if (!page || !Array.isArray(page.files) || page.incompleteSearch)
+        throw new Error("Incomplete shared folder listing");
+      for (const f of page.files) {
+        if (
+          !f ||
+          !/^[\w-]+$/u.test(f.id) ||
+          typeof f.name !== "string" ||
+          f.mimeType !== FOLDER ||
+          f.trashed
+        )
+          throw new Error("Invalid shared folder identity");
+        if (!f.driveId) results.push({ id: f.id, name: f.name });
+      }
+      token = page.nextPageToken ?? "";
+      if (token && seen.has(token))
+        throw new Error("Repeated pagination token; incomplete listing");
+      if (token) seen.add(token);
+    } while (token);
+    return results;
   }
   async createFolder(
     name: string,
     id = "root",
   ): Promise<{ id: string; name: string }> {
     segment(name);
-    if (id !== "root") await this.validateFolder(id);
+    if (!(await this.metadata(id)).capabilities?.canAddChildren)
+      throw new Error("Cannot create a folder here: Drive permission denied");
     if ((await this.children(id)).some((f) => f.name === name))
       throw new Error("Folder name already occupied");
     const next = await this.reserveId();
@@ -288,14 +317,7 @@ export class DriveClient implements RemoteBackend {
   private file(f: DriveFile, path: string, etag?: string): FileState {
     const size = Number(f.size),
       modifiedAt = Date.parse(f.modifiedTime ?? "");
-    if (
-      !f.ownedByMe ||
-      f.driveId ||
-      f.mimeType.startsWith("application/vnd.google-apps.") ||
-      !f.capabilities?.canDownload ||
-      !f.capabilities.canEdit ||
-      !f.capabilities.canTrash
-    )
+    if (f.driveId || f.mimeType.startsWith("application/vnd.google-apps."))
       throw new Error(
         "Unsupported cloud object or insufficient file permissions",
       );
@@ -324,6 +346,14 @@ export class DriveClient implements RemoteBackend {
       version: f.version,
       parents: f.parents,
       etag,
+      shared: f.ownedByMe === false,
+      permissions: {
+        download: f.capabilities?.canDownload === true,
+        edit: f.capabilities?.canEdit === true,
+        trash: f.capabilities?.canTrash === true,
+        rename: f.capabilities?.canRename === true,
+        move: f.capabilities?.canMoveItemWithinDrive === true,
+      },
     };
   }
   async scan(targets?: readonly string[]): Promise<Snapshot> {
@@ -342,7 +372,11 @@ export class DriveClient implements RemoteBackend {
       warnings: [],
       scannedAt: Date.now(),
       identity: `${this.accountId}:${this.folderId}`,
+      folderWrite: {},
+      folderShared: {},
     };
+    const root = this.metadata(this.folderId);
+    void root.catch(() => {});
     const queue = [{ id: this.folderId, path: "" }],
       seen = new Set<string>();
     while (queue.length) {
@@ -387,10 +421,14 @@ export class DriveClient implements RemoteBackend {
         // ancestors remain blocked. Other folders need no recursive listing.
         if (targets && !affected(p, targets)) continue;
         if (f.mimeType === FOLDER) {
-          if (!f.ownedByMe || f.driveId || !f.capabilities?.canAddChildren) {
+          if (f.driveId) {
             snapshot.blocked.push(p);
             snapshot.warnings.push(`Unsupported remote folder: ${p}`);
-          } else queue.push({ id: f.id, path: p });
+          } else {
+            snapshot.folderWrite![p] = f.capabilities?.canAddChildren === true;
+            snapshot.folderShared![p] = f.ownedByMe === false;
+            queue.push({ id: f.id, path: p });
+          }
         } else {
           if (seen.has(f.id)) throw new Error("Duplicate remote file identity");
           seen.add(f.id);
@@ -403,11 +441,16 @@ export class DriveClient implements RemoteBackend {
         }
       }
     }
+    snapshot.folderWrite![""] =
+      (await root).capabilities?.canAddChildren === true;
+    snapshot.folderShared![""] = (await root).ownedByMe === false;
     return snapshot;
   }
   async read(file: FileState, onProgress?: ByteProgress): Promise<ArrayBuffer> {
     this.assertTracked(file.path);
     if (!file.id) throw new Error("Missing remote identity");
+    if (file.permissions && !file.permissions.download)
+      throw new Error("Drive does not permit downloading this file");
     const endpoint = `/files/${file.id}?alt=media`;
     onProgress?.(0, file.size);
     if (!onProgress || file.size <= this.chunkSize) {
@@ -543,7 +586,11 @@ export class DriveClient implements RemoteBackend {
     relative(path);
     onProgress?.(0, data.byteLength);
     const parentId = await this.destination(path, expected?.id);
-    if (expected) await this.check(expected);
+    if (expected) {
+      if (!(await this.check(expected)).capabilities?.canEdit)
+        throw new Error("Drive does not permit editing this file");
+    } else if (!(await this.metadata(parentId)).capabilities?.canAddChildren)
+      throw new Error("Drive does not permit adding files to this folder");
     if (!expected && !newId)
       throw new Error("New upload requires a journaled reserved ID");
     const metadata = expected
@@ -621,6 +668,17 @@ export class DriveClient implements RemoteBackend {
     relative(target);
     const parentId = await this.destination(target, file.id);
     const current = await this.check(file);
+    if (
+      !current.capabilities?.canRename &&
+      basename(target) !== basename(file.path)
+    )
+      throw new Error("Drive does not permit renaming this file");
+    if (
+      !current.parents?.includes(parentId) &&
+      (!current.capabilities?.canMoveItemWithinDrive ||
+        !(await this.metadata(parentId)).capabilities?.canAddChildren)
+    )
+      throw new Error("Drive does not permit moving this file");
     const q = new URLSearchParams({ fields: FIELDS });
     if (!current.parents?.includes(parentId)) {
       q.set("addParents", parentId);
@@ -648,7 +706,8 @@ export class DriveClient implements RemoteBackend {
       fingerprint(current.files[file.path]) !== fingerprint(file)
     )
       throw new Error("Needs Rescan: remote identity changed");
-    await this.check(file);
+    if (!(await this.check(file)).capabilities?.canTrash)
+      throw new Error("Drive does not permit trashing this file");
     const r = await this.request(
       `/files/${file.id}`,
       "PATCH",

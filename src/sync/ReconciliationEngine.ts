@@ -201,6 +201,44 @@ export function reconcile(
       actions = ["use-local", "use-remote", "skip"];
       suggested = lc && rc ? "skip" : lc ? "use-local" : "use-remote";
     }
+    if (remote.folderWrite) {
+      const writable = (target: string) => {
+        let dir = target.includes("/")
+          ? target.slice(0, target.lastIndexOf("/"))
+          : "";
+        while (!(dir in remote.folderWrite!) && dir)
+          dir = dir.includes("/") ? dir.slice(0, dir.lastIndexOf("/")) : "";
+        return remote.folderWrite![dir] === true;
+      };
+      const permissions = r?.permissions;
+      actions = actions.filter((action) => {
+        if (
+          (action === "download" || action === "use-remote") &&
+          permissions &&
+          !permissions.download
+        )
+          return false;
+        if (action === "use-local" && permissions && !permissions.edit)
+          return false;
+        if (action === "upload" && !writable(path)) return false;
+        if (action === "trash-remote" && permissions && !permissions.trash)
+          return false;
+        if (action === "local-path" && permissions) {
+          const sourceName = rp.split("/").pop(),
+            targetName = lp.split("/").pop();
+          const moving =
+            rp.slice(0, rp.lastIndexOf("/") + 1) !==
+            lp.slice(0, lp.lastIndexOf("/") + 1);
+          if (
+            (sourceName !== targetName && !permissions.rename) ||
+            (moving && (!permissions.move || !writable(lp)))
+          )
+            return false;
+        }
+        return true;
+      });
+      if (!actions.includes(suggested)) suggested = "skip";
+    }
     rows.push({
       key,
       path,

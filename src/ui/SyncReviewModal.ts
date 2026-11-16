@@ -13,15 +13,15 @@ import { pageHeader } from "./PageHeader";
 import { renderOperationSummary } from "./OperationSummary";
 import { syncCommits } from "./HistoryGroups";
 const LABELS: Record<Action, string> = {
-  upload: "Upload / Restore Remote",
-  download: "Download / Restore Local",
+  upload: "Upload to Drive",
+  download: "Download to device",
   "use-local": "Use Local — overwrite remote",
   "use-remote": "Use Remote — overwrite local",
   "trash-local": "Trash Local",
   "trash-remote": "Trash Remote",
   "local-path": "Apply Local Path to Remote",
   "remote-path": "Apply Remote Path to Local",
-  accept: "Accept verified equality",
+  accept: "Confirm as in sync",
   skip: "Skip",
 };
 const CATEGORIES: Record<Category, string> = {
@@ -493,8 +493,10 @@ export class SyncReviewModal extends Modal {
       for (const c of eligible)
         if (!this.choices.has(c.key)) this.choices.set(c.key, sharedDefault);
       const category = members[0]!.category;
+      const sharedFolder =
+        !!folder && this.review?.remote.folderShared?.[folder];
       const group = files.createDiv({
-        cls: `remote-sync-group remote-sync-tone-${category}`,
+        cls: `remote-sync-group remote-sync-tone-${category}${sharedFolder ? " remote-sync-group-shared" : ""}`,
       });
       const disclosure = group.createEl("details", {
         cls: "remote-sync-group-disclosure",
@@ -514,6 +516,14 @@ export class SyncReviewModal extends Modal {
         }),
         "folder",
       );
+      if (sharedFolder)
+        setIcon(
+          summary.createEl("span", {
+            cls: "remote-sync-group-shared-icon",
+            attr: { "aria-label": "Shared folder" },
+          }),
+          "users",
+        );
       summary.createEl("strong", {
         text: folder ? `/${folder}/` : "/",
         cls: "remote-sync-group-path",
@@ -586,7 +596,10 @@ export class SyncReviewModal extends Modal {
         const card = groupFiles.createDiv({ cls: "remote-sync-file" });
         card.setAttribute("data-category", c.category);
         const heading = card.createDiv({ cls: "remote-sync-file-heading" });
-        const checkbox = heading.createEl("input", {
+        const selection = heading.createDiv({
+          cls: "remote-sync-file-selection",
+        });
+        const checkbox = selection.createEl("input", {
           type: "checkbox",
           cls: "remote-sync-file-checkbox",
           attr: { "aria-label": `Select ${c.path}` },
@@ -598,6 +611,22 @@ export class SyncReviewModal extends Modal {
           text: c.classification,
           cls: `remote-sync-badge remote-sync-tone-${c.category}`,
         });
+        if (c.remote?.shared) {
+          card.addClass("remote-sync-file-shared");
+          setIcon(
+            selection.createSpan({ cls: "remote-sync-shared-icon" }),
+            "users",
+          );
+          const permission = c.remote.permissions;
+          name.createEl("span", {
+            text: permission?.edit
+              ? "Editable"
+              : permission?.download
+                ? "Read only"
+                : "Download restricted",
+            cls: "remote-sync-badge remote-sync-tone-neutral",
+          });
+        }
         const folder = c.path.includes("/")
           ? c.path.slice(0, c.path.lastIndexOf("/"))
           : "";

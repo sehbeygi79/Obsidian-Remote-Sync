@@ -8,6 +8,14 @@ export interface FileState {
   version?: string;
   etag?: string;
   parents?: string[];
+  shared?: boolean;
+  permissions?: {
+    download: boolean;
+    edit: boolean;
+    trash: boolean;
+    rename: boolean;
+    move: boolean;
+  };
 }
 export interface Snapshot {
   files: Record<string, FileState>;
@@ -15,6 +23,8 @@ export interface Snapshot {
   warnings: string[];
   scannedAt: number;
   identity: string;
+  folderWrite?: Record<string, boolean>;
+  folderShared?: Record<string, boolean>;
 }
 export interface Baseline {
   key: string;

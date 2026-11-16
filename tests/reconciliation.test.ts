@@ -2,6 +2,33 @@ import { describe, it, expect } from "vitest";
 import { reconcile, equal } from "../src/sync/ReconciliationEngine";
 import { baseline, file, snapshot } from "./helpers";
 import type { Baseline, FileState } from "../src/sync/types";
+it("offers only permitted actions for read-only shared files and folders", () => {
+  const remote = snapshot([
+    {
+      ...file("shared/a.pdf", "remote", true),
+      shared: true,
+      permissions: {
+        download: true,
+        edit: false,
+        trash: false,
+        rename: false,
+        move: false,
+      },
+    },
+  ]);
+  remote.folderWrite = { "": true, shared: false };
+  const changes = reconcile(
+    snapshot([file("shared/a.pdf", "local"), file("shared/new.pdf")]),
+    remote,
+    {},
+  );
+  expect(
+    changes.find((change) => change.path === "shared/a.pdf")!.actions,
+  ).toEqual(["use-remote", "skip"]);
+  expect(
+    changes.find((change) => change.path === "shared/new.pdf")!.actions,
+  ).toEqual(["skip"]);
+});
 const cases: [
   string,
   FileState | null,
