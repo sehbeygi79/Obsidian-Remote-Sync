@@ -44,7 +44,9 @@ function fixture(loaded = true) {
   const content = modal.contentEl as unknown as UiElement;
   const button = (text: string, root = content) => {
     const found = root.all(
-      (el) => el.tag === "button" && el.textContent === text,
+      (el) =>
+        el.tag === "button" &&
+        (el.textContent === text || el.attributes["aria-label"] === text),
     )[0];
     if (!found) throw new Error(`Missing button: ${text}`);
     return found;
@@ -84,41 +86,43 @@ describe("sync review modal", () => {
     expect(f.apply).not.toHaveBeenCalled();
   });
 
-  it("groups filtering, selection, scan and history in one review-controls card", () => {
+  it("places settings in a collapsible pane and actions in the top bar", () => {
     const f = fixture();
     f.modal.open();
-    const selection = f.content.querySelector(
-      ".remote-sync-selection-controls",
-    )!;
-    const tools = f.content.querySelector(".remote-sync-review-tools")!;
-    const card = f.content.querySelector(".remote-sync-toolbar")!;
-    expect(card.tag).toBe("section");
-    expect(card.attributes["aria-label"]).toBe("Review controls");
-    expect(selection.parentElement).toBe(card);
-    expect(tools.parentElement).toBe(card);
-    expect(selection.tag).toBe("section");
-    expect(selection.querySelector("h3")!.textContent).toBe("Filter");
+    const pane = () => f.content.querySelector(".remote-sync-review-overview")!;
+    const menu = () => f.button("Review settings");
+    expect(pane().hidden).toBe(true);
+    expect(menu().attributes["aria-expanded"]).toBe("false");
+    menu().listeners.click!();
+    expect(pane().hidden).toBe(false);
+    expect(menu().attributes["aria-expanded"]).toBe("true");
+    expect(pane().querySelector(".remote-sync-locations")).not.toBeNull();
+    expect(pane().querySelector(".remote-sync-filter-section")).not.toBeNull();
+    expect(pane().contains(f.button("History"))).toBe(true);
     expect(
-      f.content.children.indexOf(
-        f.content.querySelector(".remote-sync-counts")!,
-      ),
-    ).toBeGreaterThan(
-      f.content.children.indexOf(
-        f.content.querySelector(".remote-sync-review-overview")!,
-      ),
+      pane()
+        .querySelector(".remote-sync-filter-section")!
+        .contains(f.button("History")),
+    ).toBe(false);
+    expect(
+      pane()
+        .querySelector(".remote-sync-filter-section")!
+        .querySelector(".remote-sync-photo-selector"),
+    ).not.toBeNull();
+    expect(pane().parentElement).toBe(
+      f.content.querySelector(".remote-sync-review-main")!.parentElement,
     );
+    const top = f.content.querySelector(".remote-sync-review-top-actions")!;
+    expect(top.querySelector(".remote-sync-select-all-toggle")).not.toBeNull();
+    expect(top.all((el) => el.textContent === "Last Sync")).toHaveLength(1);
+    expect(top.all((el) => el.textContent === "Scan")).toHaveLength(1);
     expect(
-      selection.all((el) => el.tag === "button").map((el) => el.textContent),
-    ).toEqual(["Select All", "Deselect All"]);
-    expect(
-      tools.all((el) => el.tag === "button").map((el) => el.textContent),
-    ).toEqual(["Scan", "History"]);
-    expect(f.content.querySelector("h2")!.textContent).toBe("Review Status");
-    const overview = f.content.querySelector(".remote-sync-review-overview")!;
-    expect(overview.children).toEqual([
-      f.content.querySelector(".remote-sync-locations"),
-      f.content.querySelector(".remote-sync-toolbar"),
-    ]);
+      f.content.all(
+        (el) => el.attributes["aria-label"] === "Close review settings",
+      ),
+    ).toHaveLength(0);
+    menu().listeners.click!();
+    expect(pane().hidden).toBe(true);
   });
 
   it("opens immediately with an indeterminate bar, then shows the completed review", async () => {
@@ -138,7 +142,9 @@ describe("sync review modal", () => {
     ).toBeUndefined();
     expect(f.checkboxes()).toHaveLength(0);
     expect(f.content.querySelector(".remote-sync-locations")).not.toBeNull();
-    expect(f.content.querySelector(".remote-sync-toolbar")).not.toBeNull();
+    expect(
+      f.content.querySelector(".remote-sync-filter-section"),
+    ).not.toBeNull();
     expect(
       f.content.querySelector(".remote-sync-review-footer"),
     ).not.toBeNull();
@@ -198,8 +204,8 @@ describe("sync review modal", () => {
     const f = fixture();
     f.modal.open();
     const locations = f.content.querySelector(".remote-sync-locations")!;
-    expect(locations.children).toHaveLength(3);
-    expect(locations.all((el) => el.textContent === "Last Sync")).toHaveLength(
+    expect(locations.children).toHaveLength(2);
+    expect(f.content.all((el) => el.textContent === "Last Sync")).toHaveLength(
       1,
     );
     expect(
@@ -622,26 +628,22 @@ it("groups sibling changes by folder and classification, with group and individu
   expect(summaryText(localGroup())).toContain("2 files");
   expect(summaryText(remoteGroup)).toContain("2 files");
   expect(localGroup().querySelector("details")!.open).toBe(false);
-  localGroup().all((el) => el.textContent === "Select group")[0]!.listeners
-    .click!();
+  localGroup().all((el) => el.attributes["aria-label"] === "Select group")[0]!
+    .listeners.click!({ preventDefault() {}, stopPropagation() {} });
   expect(f.status()).toBe("Selected operations: 2");
   const groupPicker = () =>
     localGroup().all(
       (el) => el.attributes["aria-label"] === "Action for f1 Local addition",
     )[0]!;
   const picker = groupPicker();
-  picker.value = "skip";
-  picker.listeners.change!();
   expect(
-    localGroup()
-      .all((el) => el.classes.has("remote-sync-file"))
-      .map((el) => el.querySelector("select")!.value),
-  ).toEqual(["skip", "skip"]);
+    picker.all((el) => el.tag === "option").map((el) => el.value),
+  ).not.toContain("skip");
   const individual = localGroup()
     .all((el) => el.classes.has("remote-sync-file"))[0]!
     .querySelector("select")!;
   individual.value = "upload";
   individual.listeners.change!();
-  expect(groupPicker().value).toBe("mixed");
+  expect(groupPicker().value).toBe("upload");
   expect(f.status()).toBe("Selected operations: 2");
 });

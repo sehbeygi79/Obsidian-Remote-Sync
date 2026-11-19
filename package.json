@@ -1,6 +1,6 @@
 {
   "name": "obsidian-remote-sync",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "description": "Selectively sync Obsidian vault attachments and files with remote drives.",
   "scripts": {
@@ -10,8 +10,8 @@
     "test": "vitest run",
     "test:integration": "vitest run tests/executor.test.ts tests/drive.test.ts tests/auth.test.ts tests/local.test.ts tests/state.test.ts",
     "lint": "eslint src tests",
-    "format": "prettier --write src tests scripts *.json *.mjs *.mts README.md docs/*.md styles.css",
-    "format:check": "prettier --check src tests scripts *.json *.mjs *.mts README.md docs/*.md styles.css",
+    "format": "prettier --write src tests scripts *.json *.mjs *.mts README.md .agents/docs/*.md styles.css",
+    "format:check": "prettier --check src tests scripts *.json *.mjs *.mts README.md .agents/docs/*.md styles.css",
     "check:bundle": "node scripts/check-bundle.mjs"
   },
   "dependencies": {

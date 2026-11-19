@@ -12,7 +12,7 @@ import { photoSelector } from "./PhotoSelector";
 import { pageHeader } from "./PageHeader";
 import { renderOperationSummary } from "./OperationSummary";
 import { syncCommits } from "./HistoryGroups";
-const LABELS: Record<Action, string> = {
+const LABELS: Partial<Record<Action, string>> = {
   upload: "Upload to Drive",
   download: "Download to device",
   "use-local": "Use Local — overwrite remote",
@@ -22,7 +22,6 @@ const LABELS: Record<Action, string> = {
   "local-path": "Apply Local Path to Remote",
   "remote-path": "Apply Remote Path to Local",
   accept: "Confirm as in sync",
-  skip: "Skip",
 };
 const CATEGORIES: Record<Category, string> = {
   addition: "Added",
@@ -61,6 +60,7 @@ export class SyncReviewModal extends Modal {
   private selectedActions = new Map<string, Action>();
   private choices = new Map<string, Action>();
   private filter: Category | "all" = "all";
+  private settingsOpen = false;
   private applying = false;
   private consumed = new Set<string>();
   private expandedFiles = new Set<string>();
@@ -97,8 +97,33 @@ export class SyncReviewModal extends Modal {
     const fileScrollTop =
       el.querySelector<HTMLElement>(".remote-sync-files")?.scrollTop ?? 0;
     el.empty();
-    const header = pageHeader(el, "Review Status");
+    const topbar = el.createDiv({ cls: "remote-sync-review-topbar" });
+    const menu = topbar.createEl("button", {
+      cls: "remote-sync-review-menu",
+      attr: {
+        type: "button",
+        "aria-label": "Review settings",
+        "aria-expanded": String(this.settingsOpen),
+        "aria-controls": "remote-sync-review-settings",
+      },
+    });
+    setIcon(menu, "menu");
+    menu.addEventListener("click", () => {
+      this.settingsOpen = !this.settingsOpen;
+      this.render();
+    });
+    const header = pageHeader(topbar, "Review Status");
     header.addClass("remote-sync-review-header");
+    const layout = el.createDiv({ cls: "remote-sync-review-layout" });
+    const overview = layout.createDiv({
+      cls: "remote-sync-review-overview",
+      attr: {
+        id: "remote-sync-review-settings",
+        "aria-label": "Review settings",
+      },
+    });
+    overview.hidden = !this.settingsOpen;
+    const main = layout.createDiv({ cls: "remote-sync-review-main" });
     const review = this.review;
     const unlocked = this.plugin.credentials.unlocked;
     const context = review?.context ?? (unlocked ? this.plugin.context() : "");
@@ -120,7 +145,10 @@ export class SyncReviewModal extends Modal {
         (b) => b.syncedAt,
       ),
     );
-    const overview = el.createDiv({ cls: "remote-sync-review-overview" });
+    const topActions = topbar.createDiv({
+      cls: "remote-sync-review-top-actions",
+    });
+    metadata(topActions, "Last Sync", stamp(last));
     const locations = overview.createEl("section", {
       cls: "remote-sync-locations",
       attr: { "aria-label": "Sync folders" },
@@ -285,42 +313,41 @@ export class SyncReviewModal extends Modal {
         },
       );
     }
-    metadata(locations, "Last Sync", stamp(last));
     const counts = new Map<Category, number>();
     for (const c of changes)
       counts.set(c.category, (counts.get(c.category) ?? 0) + 1);
-    const toolbarSection = overview.createEl("section", {
-      cls: "remote-sync-toolbar",
-      attr: { "aria-label": "Review controls" },
-    });
-    const filterSection = toolbarSection.createEl("section", {
-      cls: "remote-sync-selection-controls",
+    const filterSection = overview.createEl("section", {
+      cls: "remote-sync-filter-section",
       attr: { "aria-label": "Filter" },
     });
-    filterSection.createEl("h3", { text: "Filter" });
-    const filterPicker = new Setting(
-      filterSection.createDiv({ cls: "remote-sync-filter-picker" }),
+    photoSelector(
+      filterSection,
+      (
+        [
+          "all",
+          "addition",
+          "modification",
+          "deletion",
+          "rename",
+          "conflict",
+          "equal",
+          "blocked",
+        ] as const
+      ).map((category) => ({
+        id: category,
+        title: category === "all" ? "All differences" : CATEGORIES[category],
+        description: "",
+        icon: "list-filter",
+      })),
+      this.filter,
+      "Filter file status",
+      (value) => {
+        this.filter = value as Category | "all";
+        this.render();
+      },
+      this.applying || !ready,
+      { heading: "Filter" },
     );
-    filterPicker.addDropdown((d) => {
-      d.selectEl.setAttribute("aria-label", "Filter file status");
-      d.addOption("all", "All differences");
-      for (const c of [
-        "addition",
-        "modification",
-        "deletion",
-        "rename",
-        "conflict",
-        "equal",
-        "blocked",
-      ])
-        d.addOption(c, CATEGORIES[c as Category]);
-      d.setValue(this.filter)
-        .setDisabled(this.applying || !ready)
-        .onChange((v) => {
-          this.filter = v as Category | "all";
-          this.render();
-        });
-    });
     const visible = changes.filter((c) =>
       this.filter === "all"
         ? c.classification !== "Synchronized"
@@ -331,38 +358,43 @@ export class SyncReviewModal extends Modal {
                 !equal(c.local, c.remote)))
           : c.category === this.filter,
     );
-    const selectionButtons = new Setting(
-      filterSection.createDiv({ cls: "remote-sync-selection-buttons" }),
+    const eligible = visible.filter(
+      (c) => c.category !== "blocked" && !this.consumed.has(c.key),
     );
-    selectionButtons.addButton((b) =>
-      b
-        .setButtonText("Select All")
-        .setDisabled(this.applying || !ready)
-        .onClick(() => {
-          this.batchProgress = null;
-          for (const c of visible)
-            if (c.category !== "blocked" && !this.consumed.has(c.key))
-              this.selectedActions.set(
-                c.key,
-                this.choices.get(c.key) ?? c.suggested,
-              );
-          this.render();
-        }),
+    const allSelected =
+      eligible.length > 0 &&
+      eligible.every((c) => this.selectedActions.has(c.key));
+    const selectAll = topActions.createEl("button", {
+      cls: "remote-sync-group-selection-toggle remote-sync-select-all-toggle",
+      attr: {
+        type: "button",
+        "aria-label": allSelected ? "Deselect All" : "Select All",
+        "aria-pressed": String(allSelected),
+        "aria-disabled": String(this.applying || !ready || !eligible.length),
+      },
+    });
+    setIcon(selectAll, allSelected ? "square-check" : "square");
+    selectAll.createSpan({
+      text: allSelected ? "Deselect All" : "Select All",
+      cls: "remote-sync-group-selection-label",
+    });
+    selectAll.addEventListener("click", () => {
+      if (this.applying || !ready || !eligible.length) return;
+      this.batchProgress = null;
+      for (const c of eligible) {
+        if (allSelected) this.selectedActions.delete(c.key);
+        else
+          this.selectedActions.set(
+            c.key,
+            this.choices.get(c.key) ?? c.suggested,
+          );
+      }
+      this.render();
+    });
+    const scanControls = new Setting(
+      topActions.createDiv({ cls: "remote-sync-top-scan" }),
     );
-    selectionButtons.addButton((b) =>
-      b
-        .setButtonText("Deselect All")
-        .setDisabled(this.applying || !ready)
-        .onClick(() => {
-          this.batchProgress = null;
-          this.selectedActions.clear();
-          this.render();
-        }),
-    );
-    const controls = new Setting(
-      toolbarSection.createDiv({ cls: "remote-sync-review-tools" }),
-    );
-    controls.addButton((b) => {
+    scanControls.addButton((b) => {
       b.setButtonText("Scan")
         .setDisabled(this.applying || this.scanning)
         .onClick(() => {
@@ -370,8 +402,7 @@ export class SyncReviewModal extends Modal {
             await this.loadReview();
           });
         });
-      b.buttonEl.addClass("remote-sync-icon-button");
-      b.buttonEl.addClass("remote-sync-scan-button");
+      b.buttonEl.addClass("remote-sync-icon-button", "remote-sync-scan-button");
       setIcon(
         b.buttonEl.createEl("span", {
           cls: "remote-sync-button-icon",
@@ -380,6 +411,9 @@ export class SyncReviewModal extends Modal {
         "refresh-cw",
       );
     });
+    const controls = new Setting(
+      overview.createDiv({ cls: "remote-sync-review-history" }),
+    );
     controls.addButton((b) => {
       b.setButtonText("History").onClick(() =>
         new HistoryModal(this.app, this.plugin.state, "", context).open(),
@@ -393,7 +427,7 @@ export class SyncReviewModal extends Modal {
         "history",
       );
     });
-    const badges = el.createDiv({ cls: "remote-sync-counts" });
+    const badges = main.createDiv({ cls: "remote-sync-counts" });
     for (const [category, count] of counts)
       badges.createEl("span", {
         text: `${count} ${CATEGORIES[category]}`,
@@ -404,7 +438,7 @@ export class SyncReviewModal extends Modal {
         text: this.scanError ? "Status unavailable" : "Checking status…",
         cls: "remote-sync-status-pending",
       });
-    const warnings = el.createDiv({ cls: "remote-sync-warnings" });
+    const warnings = main.createDiv({ cls: "remote-sync-warnings" });
     if (ready) {
       for (const warning of [
         ...review!.local.warnings,
@@ -433,7 +467,7 @@ export class SyncReviewModal extends Modal {
           cls: "remote-sync-warning",
         });
     }
-    const files = el.createDiv({ cls: "remote-sync-files" });
+    const files = main.createDiv({ cls: "remote-sync-files" });
     files.setAttribute(
       "aria-busy",
       String(this.scanning || (!review && !this.scanError)),
@@ -480,23 +514,25 @@ export class SyncReviewModal extends Modal {
       const eligible = members.filter(
         (c) => c.category !== "blocked" && !this.consumed.has(c.key),
       );
-      const commonActions = members[0]!.actions.filter((action) =>
-        members.every((c) => c.actions.includes(action)),
+      const commonActions = members[0]!.actions.filter(
+        (action) =>
+          action !== "skip" && members.every((c) => c.actions.includes(action)),
       );
       const sharedDefault = members.every(
         (c) => c.suggested === members[0]!.suggested,
       )
         ? members[0]!.suggested
-        : commonActions.includes("skip")
-          ? "skip"
-          : commonActions[0]!;
+        : commonActions[0]!;
       for (const c of eligible)
         if (!this.choices.has(c.key)) this.choices.set(c.key, sharedDefault);
       const category = members[0]!.category;
       const sharedFolder =
         !!folder && this.review?.remote.folderShared?.[folder];
+      const selectedCount = members.filter((c) =>
+        this.selectedActions.has(c.key),
+      ).length;
       const group = files.createDiv({
-        cls: `remote-sync-group remote-sync-tone-${category}${sharedFolder ? " remote-sync-group-shared" : ""}`,
+        cls: `remote-sync-group remote-sync-tone-${category}${sharedFolder ? " remote-sync-group-shared" : ""}${selectedCount ? " remote-sync-group-has-selection" : ""}`,
       });
       const disclosure = group.createEl("details", {
         cls: "remote-sync-group-disclosure",
@@ -509,8 +545,12 @@ export class SyncReviewModal extends Modal {
       const summary = disclosure.createEl("summary", {
         cls: "remote-sync-group-heading",
       });
+      const allSelected =
+        eligible.length > 0 &&
+        eligible.every((c) => this.selectedActions.has(c.key));
+      const leading = summary.createDiv({ cls: "remote-sync-group-leading" });
       setIcon(
-        summary.createEl("span", {
+        leading.createEl("span", {
           cls: "remote-sync-group-folder-icon",
           attr: { "aria-hidden": "true" },
         }),
@@ -518,7 +558,7 @@ export class SyncReviewModal extends Modal {
       );
       if (sharedFolder)
         setIcon(
-          summary.createEl("span", {
+          leading.createEl("span", {
             cls: "remote-sync-group-shared-icon",
             attr: { "aria-label": "Shared folder" },
           }),
@@ -536,32 +576,43 @@ export class SyncReviewModal extends Modal {
         text: members[0]!.classification,
         cls: `remote-sync-badge remote-sync-tone-${category}`,
       });
+      if (selectedCount)
+        summary.createEl("span", {
+          text: `${selectedCount} selected`,
+          cls: "remote-sync-badge remote-sync-group-selected-count",
+        });
+      const selectionToggle = leading.createEl("button", {
+        cls: "remote-sync-group-selection-toggle",
+        attr: {
+          type: "button",
+          "aria-label": allSelected ? "Deselect group" : "Select group",
+          "aria-pressed": String(allSelected),
+          "aria-disabled": String(this.applying || !eligible.length),
+        },
+      });
+      setIcon(selectionToggle, allSelected ? "square-check" : "square");
+      selectionToggle.createSpan({
+        text: allSelected ? "Deselect group" : "Select group",
+        cls: "remote-sync-group-selection-label",
+      });
+      selectionToggle.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (this.applying || !eligible.length) return;
+        this.batchProgress = null;
+        if (allSelected) {
+          for (const c of eligible) this.selectedActions.delete(c.key);
+        } else {
+          for (const c of eligible)
+            this.selectedActions.set(
+              c.key,
+              this.choices.get(c.key) ?? sharedDefault,
+            );
+        }
+        this.render();
+      });
       const controls = new Setting(
         group.createDiv({ cls: "remote-sync-group-controls" }),
-      );
-      controls.addButton((button) =>
-        button
-          .setButtonText("Select group")
-          .setDisabled(this.applying || !eligible.length)
-          .onClick(() => {
-            this.batchProgress = null;
-            for (const c of eligible)
-              this.selectedActions.set(
-                c.key,
-                this.choices.get(c.key) ?? sharedDefault,
-              );
-            this.render();
-          }),
-      );
-      controls.addButton((button) =>
-        button
-          .setButtonText("Deselect group")
-          .setDisabled(this.applying || !eligible.length)
-          .onClick(() => {
-            this.batchProgress = null;
-            for (const c of eligible) this.selectedActions.delete(c.key);
-            this.render();
-          }),
       );
       controls.addDropdown((dropdown) => {
         dropdown.selectEl.setAttribute(
@@ -573,7 +624,7 @@ export class SyncReviewModal extends Modal {
         );
         if (choices.size > 1) dropdown.addOption("mixed", "Mixed actions");
         for (const action of commonActions)
-          dropdown.addOption(action, LABELS[action]);
+          dropdown.addOption(action, LABELS[action] ?? action);
         dropdown
           .setValue(
             choices.size > 1 ? "mixed" : ([...choices][0] ?? sharedDefault),
@@ -659,7 +710,9 @@ export class SyncReviewModal extends Modal {
         );
         risk.hidden = !risk.textContent;
         setting.addDropdown((d) => {
-          for (const action of c.actions) d.addOption(action, LABELS[action]);
+          for (const action of c.actions)
+            if (action !== "skip")
+              d.addOption(action, LABELS[action] ?? action);
           d.setValue(this.choices.get(c.key) ?? c.suggested)
             .setDisabled(this.applying || this.consumed.has(c.key))
             .onChange((v) => {
@@ -686,7 +739,11 @@ export class SyncReviewModal extends Modal {
         const detailMetadata = details.createDiv({
           cls: "remote-sync-detail-metadata",
         });
-        metadata(detailMetadata, "Suggested action", LABELS[c.suggested]);
+        metadata(
+          detailMetadata,
+          "Suggested action",
+          LABELS[c.suggested] ?? c.suggested,
+        );
         metadata(
           detailMetadata,
           "Local",
@@ -741,7 +798,7 @@ export class SyncReviewModal extends Modal {
           });
       }
     }
-    const footer = el.createDiv({ cls: "remote-sync-review-footer" });
+    const footer = main.createDiv({ cls: "remote-sync-review-footer" });
     this.progressStatusEl = footer.createEl("p", {
       text: `Selected operations: ${this.selectedActions.size}`,
       cls: "remote-sync-progress-status",

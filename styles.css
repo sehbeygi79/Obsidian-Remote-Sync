@@ -1530,13 +1530,12 @@
 }
 
 .remote-sync-group {
+  --remote-sync-group-tone: #c7cbd3;
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
-  border: 1px solid var(--background-modifier-border);
-  border-color: var(--remote-sync-tone, var(--background-modifier-border));
-  border-inline-start: 3px solid
-    var(--remote-sync-tone, var(--background-modifier-border));
+  border: 1px solid var(--remote-sync-group-tone);
+  border-inline-start: 3px solid var(--remote-sync-group-tone);
   border-radius: 12px;
   margin-bottom: 12px;
   padding: 12px;
@@ -1548,23 +1547,30 @@
 .remote-sync-group:has(.remote-sync-group-disclosure[open]) {
   background: color-mix(in srgb, var(--background-secondary) 58%, transparent);
 }
+.remote-sync-group-has-selection {
+  --remote-sync-group-tone: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  border-inline-start-color: var(--interactive-accent);
+  background-color: color-mix(
+    in srgb,
+    var(--interactive-accent) 11%,
+    var(--background-primary)
+  );
+}
+.remote-sync-group-has-selection:has(.remote-sync-group-disclosure[open]) {
+  background-color: color-mix(
+    in srgb,
+    var(--interactive-accent) 14%,
+    var(--background-primary)
+  );
+}
 .remote-sync-group-shared {
   background-image: repeating-linear-gradient(
     135deg,
     transparent 0,
     transparent 9px,
-    color-mix(
-        in srgb,
-        var(--remote-sync-tone, var(--text-muted)) 7%,
-        transparent
-      )
-      9px,
-    color-mix(
-        in srgb,
-        var(--remote-sync-tone, var(--text-muted)) 7%,
-        transparent
-      )
-      11px
+    color-mix(in srgb, var(--remote-sync-group-tone) 11%, transparent) 9px,
+    color-mix(in srgb, var(--remote-sync-group-tone) 11%, transparent) 11px
   );
 }
 .remote-sync-group-disclosure > summary {
@@ -1580,6 +1586,84 @@
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+.remote-sync-group-selection-toggle {
+  appearance: none;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-start;
+  width: max-content;
+  height: 24px;
+  padding: 0 4px 0 0;
+  margin-top: 3px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  color: var(--text-muted);
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.remote-sync-group-leading {
+  display: grid;
+  grid-template-columns: 18px 18px;
+  grid-template-rows: 20px 24px;
+  align-items: center;
+  justify-items: start;
+  gap: 3px 4px;
+  margin-inline-end: 2px;
+}
+.remote-sync-group-leading > .remote-sync-group-folder-icon,
+.remote-sync-group-leading > .remote-sync-group-shared-icon {
+  position: static;
+}
+.remote-sync-group-leading > .remote-sync-group-folder-icon {
+  grid-column: 1;
+  grid-row: 1;
+}
+.remote-sync-group-leading > .remote-sync-group-shared-icon {
+  grid-column: 2;
+  grid-row: 1;
+}
+.remote-sync-group-leading > .remote-sync-group-selection-toggle {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin-inline-start: 0;
+  justify-self: start;
+}
+.remote-sync-group-disclosure > summary {
+  align-items: start;
+}
+.remote-sync-group-selection-toggle:hover:not([aria-disabled="true"]) {
+  background: transparent !important;
+  background-image: none !important;
+  color: var(--interactive-accent);
+}
+.remote-sync-group-selection-toggle:focus,
+.remote-sync-group-selection-toggle:focus-visible,
+.remote-sync-group-selection-toggle:active {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+.remote-sync-group-selection-toggle[aria-pressed="true"] {
+  color: var(--interactive-accent);
+}
+.remote-sync-group-selection-label {
+  margin-inline-start: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.remote-sync-group-selection-toggle[aria-disabled="true"] {
+  opacity: 0.45;
+}
+.remote-sync-group-selection-toggle svg {
+  width: 17px;
+  height: 17px;
+}
 .remote-sync-group-path {
   min-width: 0;
   font-weight: 650;
@@ -1588,7 +1672,7 @@
 .remote-sync-group-folder-icon {
   display: inline-flex;
   flex: 0 0 auto;
-  color: var(--remote-sync-tone, var(--text-muted));
+  color: var(--remote-sync-group-tone);
 }
 .remote-sync-group-folder-icon svg {
   width: 16px;
@@ -1596,7 +1680,7 @@
 }
 .remote-sync-group-shared-icon {
   display: inline-flex;
-  color: var(--remote-sync-tone, var(--text-muted));
+  color: var(--remote-sync-group-tone);
 }
 .remote-sync-group-shared-icon svg {
   width: 14px;
@@ -1606,9 +1690,227 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.remote-sync-group-selected-count {
+  --remote-sync-tone: var(--interactive-accent);
+}
 .remote-sync-group-controls {
   margin-top: 8px;
 }
 .remote-sync-group-files {
   margin-top: 8px;
+}
+
+/* Review settings drawer and persistent actions */
+.remote-sync-review .remote-sync-review-content {
+  position: relative;
+}
+.remote-sync-review-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.remote-sync-review-menu,
+.remote-sync-pane-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 7px;
+}
+.remote-sync-review-topbar .remote-sync-page-header {
+  flex: 1 1 auto;
+}
+.remote-sync-review-topbar .remote-sync-eyebrow {
+  margin-bottom: 3px;
+}
+.remote-sync-review-top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-left: auto;
+}
+.remote-sync-review-top-actions .remote-sync-meta-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-size: 11px;
+}
+.remote-sync-select-all-toggle {
+  margin: 0;
+}
+.remote-sync-review .remote-sync-review-overview {
+  position: absolute;
+  z-index: 10;
+  inset: 0 auto 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(360px, 42%);
+  padding: 16px;
+  overflow-y: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-primary);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+}
+.remote-sync-review .remote-sync-review-overview[hidden] {
+  display: none;
+}
+.remote-sync-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.remote-sync-pane-header h3 {
+  margin: 0;
+}
+.remote-sync-review .remote-sync-review-tools .setting-item-control {
+  display: flex;
+}
+@container remote-sync-review (max-width: 720px) {
+  .remote-sync-review .remote-sync-review-overview {
+    width: 100%;
+  }
+}
+
+/* Keep the review visible beside the settings pane. */
+.remote-sync-review-layout {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 auto;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+}
+.remote-sync-review-main {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  min-height: 0;
+}
+.remote-sync-review .remote-sync-review-overview {
+  position: static;
+  flex: 0 0 min(360px, 42%);
+  width: auto;
+  min-width: 0;
+  box-shadow: none;
+}
+.remote-sync-filter-section {
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary);
+}
+.remote-sync-filter-section .remote-sync-selector-text > span:empty {
+  display: none;
+}
+.remote-sync-review-history {
+  padding: 0 12px;
+}
+.remote-sync-review-history .setting-item-control {
+  justify-content: flex-start;
+}
+@container remote-sync-review (max-width: 720px) {
+  .remote-sync-review-layout {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .remote-sync-review .remote-sync-review-overview {
+    flex: 0 0 auto;
+    width: 100%;
+    overflow: visible;
+  }
+  .remote-sync-review-main {
+    flex: 0 0 auto;
+  }
+}
+.remote-sync-review-topbar {
+  order: -1;
+  align-self: flex-start;
+  flex: 0 0 auto;
+}
+.remote-sync-review-menu {
+  appearance: none;
+  border: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 4px;
+  color: var(--text-muted);
+}
+.remote-sync-review-menu:hover,
+.remote-sync-review-menu:focus-visible {
+  color: var(--text-accent);
+}
+.remote-sync-review-menu svg {
+  width: 24px;
+  height: 24px;
+}
+.remote-sync-pane-header {
+  display: none;
+}
+.remote-sync-review-layout {
+  flex-direction: row-reverse;
+}
+.remote-sync-review-main > .remote-sync-review-topbar {
+  display: none;
+}
+.remote-sync-review .remote-sync-review-content {
+  display: flex;
+  flex-direction: column;
+}
+.remote-sync-review-topbar {
+  display: flex;
+  order: 0;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+.remote-sync-review-layout {
+  display: flex;
+  order: 1;
+  flex: 1 1 auto;
+  flex-direction: row;
+  min-height: 0;
+}
+.remote-sync-review-main {
+  flex: 1 1 0;
+}
+.remote-sync-review-topbar .remote-sync-page-header {
+  flex: 1 1 auto;
+}
+.remote-sync-review-menu {
+  order: -1;
+}
+@container remote-sync-review (max-width:720px) {
+  .remote-sync-review-layout {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .remote-sync-review .remote-sync-review-overview {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+  .remote-sync-review-main {
+    flex: 0 0 auto;
+  }
+}
+/* Keep review actions at the far edge of the title row. */
+.remote-sync-review-topbar {
+  width: 100%;
+}
+.remote-sync-review-topbar .remote-sync-page-header {
+  flex: 0 1 auto;
+}
+.remote-sync-review-top-actions {
+  margin-left: auto;
+}
+.remote-sync-review-menu svg {
+  width: 30px;
+  height: 30px;
 }

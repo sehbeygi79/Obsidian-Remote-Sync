@@ -72,6 +72,9 @@ export class UiElement {
     this.appendChild(child);
     return child;
   }
+  createSpan(options = {}): UiElement {
+    return this.createEl("span", options);
+  }
   createDiv(options = {}): UiElement {
     return this.createEl("div", options);
   }
